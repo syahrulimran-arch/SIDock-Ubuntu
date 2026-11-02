@@ -1,0 +1,9 @@
+{
+  "model_selected": 1,
+  "coordinate_lines": 36,
+  "prefix_stripped": true,
+  "negative_coordinates_preserved": true,
+  "serials_preserved_in_raw_dlg": true,
+  "parser_issue": "Final DLG serials are traversal-renumbered; direct assignment to CCD atom order was invalid. Reference-PDBQT coordinate mapping is now required.",
+  "corrected_parser_status": "PASS"
+}

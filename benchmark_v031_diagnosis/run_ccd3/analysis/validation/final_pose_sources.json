@@ -1,0 +1,15 @@
+{
+  "dlg_sha256": "9b9d240abe42ceb7d729d8af55c8bfd091ca80a82712a183c53f5382a1ee0604",
+  "model_marker": "DOCKED: MODEL 1",
+  "coordinate_block_lines": [
+    1209,
+    1296
+  ],
+  "raw_source": "DOCKED: ATOM/HETATM lines through DOCKED: ENDMDL",
+  "sidock_parser": "analysis._extract_models; prior RMSD extractor assigned traversal coordinates directly to CCD atom order",
+  "state_marker_lines": [
+    1205,
+    1207
+  ],
+  "selected_pose": "single local-search final MODEL 1"
+}

@@ -1,0 +1,6 @@
+{
+  "reconstruction_method": "coordinate-validated PDBQT traversal mapping; full AutoDock transform reconstruction not implemented",
+  "reconstructed_vs_crystal_RMSD_A": 0.19806595167297514,
+  "reconstructed_vs_raw_DLG_RMSD_A": 0.0,
+  "note": "Raw final DLG coordinates and corrected mapped pose are the authoritative same coordinate array."
+}

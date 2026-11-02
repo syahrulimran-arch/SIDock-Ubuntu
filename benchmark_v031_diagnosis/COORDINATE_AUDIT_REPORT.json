@@ -1,0 +1,25 @@
+{
+  "classification": "POSE_EXTRACTION_DEFECT",
+  "raw_dlg_source": "DOCKED: MODEL 1 ATOM/HETATM block, lines 1240-1303 of local_search_trace.dlg",
+  "heavy_atoms_mapped_by_traversal": 33,
+  "serial_fixed_frame_RMSD_A": 0.1980659517,
+  "chemical_fixed_frame_RMSD_A_after_correct_mapping": 0.1980659517,
+  "numpy_RMSD_A": 0.1980659517,
+  "raw_centroid_displacement_A": 0.1561243,
+  "maximum_raw_atom_displacement_A": 0.3367492,
+  "reconstructed_state_RMSD_A": 0.1980659517,
+  "reconstructed_vs_raw_DLG_A": 0.0,
+  "previous_extracted_RMSD_A": 8.248876,
+  "corrected_flexible_20_RMSD_range_A": [
+    0.19806595,
+    0.28407793
+  ],
+  "corrected_flexible_native_like_count": 20,
+  "rigid_native_start_RMSD_range_A": [
+    0.1977807,
+    0.2724991
+  ],
+  "parser_issue": "SIDock mapped DLG traversal-order coordinates directly onto CCD atom order; DLG serials are renumbered traversal serials. Corrected extraction maps input PDBQT traversal order to CCD atoms using coordinate validation.",
+  "epdb_status": "Existing EPDB final-pose energies were generated from raw coordinates; coordinate identity is now confirmed, but prior RMSD labels must be regenerated.",
+  "decision": "Previous NATIVE_BASIN_UNSTABLE hypothesis invalidated."
+}

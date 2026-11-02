@@ -1,0 +1,7 @@
+{
+  "serial_traversal_fixed_frame_RMSD_A": 0.19806595167297514,
+  "chemical_mapping_fixed_frame_RMSD_A": 0.19806595167297514,
+  "numpy_fixed_frame_RMSD_A": 0.19806595167297514,
+  "ligand_superposition_performed": false,
+  "conclusion": "Traversal/serial correspondence agrees with NumPy; corrected chemical mapper agrees after PDBQT-to-CCD mapping."
+}

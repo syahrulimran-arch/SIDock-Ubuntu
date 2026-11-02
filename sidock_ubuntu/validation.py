@@ -144,7 +144,7 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, objec
     return {"crystal": crystal, "prepared": mol, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt, "reference_chemistry": reconstructed}
 
 
-def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
+def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path, reference_pdbqt: Path | None = None) -> Chem.Mol:
     mol = Chem.Mol(native)
     conf = Chem.Conformer(mol.GetNumAtoms())
     atoms = []
@@ -156,7 +156,24 @@ def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
             atoms.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
     if len(atoms) != mol.GetNumAtoms():
         raise ValueError("Redocked pose atom count does not match native ligand")
-    for idx, xyz in enumerate(atoms): conf.SetAtomPosition(idx, xyz)
+    if reference_pdbqt is None:
+        for idx, xyz in enumerate(atoms): conf.SetAtomPosition(idx, xyz)
+    else:
+        ref_atoms = []
+        for line in reference_pdbqt.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith(("ATOM", "HETATM")):
+                atom_type = line[77:79].strip() or line.split()[-1]
+                if atom_type in {"H", "HD", "HS"} or line[12:16].strip().startswith("H"):
+                    continue
+                ref_atoms.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+        if len(ref_atoms) != len(atoms):
+            raise ValueError("Reference PDBQT and pose have different heavy-atom counts")
+        nconf = native.GetConformer(); unused = set(i for i in range(native.GetNumAtoms()) if native.GetAtomWithIdx(i).GetSymbol() != "H"); order = []
+        for xyz in ref_atoms:
+            candidates = sorted((math.dist(xyz, (nconf.GetAtomPosition(i).x, nconf.GetAtomPosition(i).y, nconf.GetAtomPosition(i).z)), i) for i in unused)
+            if not candidates or candidates[0][0] > 0.25: raise ValueError("Could not coordinate-validate PDBQT-to-CCD atom mapping")
+            idx = candidates[0][1]; order.append(idx); unused.remove(idx)
+        for idx, xyz in zip(order, atoms): conf.SetAtomPosition(idx, xyz)
     mol.RemoveAllConformers(); mol.AddConformer(conf, assignId=True)
     return mol
 
@@ -246,7 +263,7 @@ def run_native_redocking(*, native_pdb: Path, receptor_pdbqt: Path, grid_dir: Pa
     best = min((m for m in models if m[1] is not None), key=lambda m: float(m[1]), default=None)
     if best is None: raise RuntimeError("Native redocking produced no scored pose")
     pose_pdbqt = output_dir / "native_redocked_best.pdbqt"; pose_pdbqt.write_text("MODEL 1\n" + "\n".join(best[2]) + "\nENDMDL\n", encoding="utf-8")
-    pose_mol = _pose_mol_from_pdbqt(crystal, pose_pdbqt)
+    pose_mol = _pose_mol_from_pdbqt(crystal, pose_pdbqt, native_pdbqt)
     pose_pdb = output_dir / "native_redocked_best.pdb"
     Chem.MolToPDBFile(pose_mol, str(pose_pdb))
     rmsd = heavy_atom_rmsd(crystal, pose_mol)
