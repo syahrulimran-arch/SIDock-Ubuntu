@@ -17,6 +17,8 @@ from rdkit.Chem import Descriptors, rdMolDescriptors
 
 from .core import pdbqt_atom_types, run_command, write_dpf
 from .model import DockingParameters, GridBox
+from .dependencies import resolve_meeko_script
+from .reference import load_local_ccd
 
 
 def crystal_ligand_to_sdf(pdb: Path, destination: Path) -> Chem.Mol:
@@ -36,7 +38,7 @@ def crystal_ligand_to_sdf(pdb: Path, destination: Path) -> Chem.Mol:
     return mol
 
 
-def reconstruct_reference_from_ccd(native_pdb: Path, output_dir: Path, component_id: str | None = None) -> dict[str, object]:
+def reconstruct_reference_from_ccd(native_pdb: Path, output_dir: Path, component_id: str | None = None, ccd_path: Path | None = None) -> dict[str, object]:
     """Build the reference ligand graph from the RCSB CCD and PDB coordinates."""
     try:
         import gemmi
@@ -50,6 +52,24 @@ def reconstruct_reference_from_ccd(native_pdb: Path, output_dir: Path, component
     component_id = component_id or next((line[17:20].strip() for line in pdb_lines if line.startswith("HETATM")), None)
     if not component_id:
         raise RuntimeError("REFERENCE_CHEMISTRY_UNRESOLVED: component ID was not found")
+    local_json=Path(ccd_path) if ccd_path else output_dir.parent.parent/'input'/'ccd.json'
+    if local_json.exists():
+        source=load_local_ccd(local_json,component_id)
+        if source.get('parse_status')!='PASS': raise RuntimeError(f"REFERENCE_CHEMISTRY_UNRESOLVED: local CCD {source.get('warnings')}")
+        chemistry=source['chemistry']; atoms=chemistry.get('atoms',[]); rw=Chem.RWMol(); ids=[]
+        for item in atoms:
+            if str(item.get('element','')).upper() in {'H','D'}: continue
+            atom=Chem.Atom(str(item.get('element','C'))); atom.SetFormalCharge(int(item.get('formal_charge',item.get('charge',0)) or 0)); atom.SetIsAromatic(bool(item.get('aromatic',False))); atom.SetProp('_CCDAtomId',str(item['id'])); rw.AddAtom(atom); ids.append(str(item['id']))
+        index={x:i for i,x in enumerate(ids)}
+        for bond in chemistry.get('bonds',[]):
+            a,b=str(bond.get('a',bond.get('atom1'))),str(bond.get('b',bond.get('atom2'))); order=float(bond.get('order',1.0)); bt=Chem.BondType.AROMATIC if bond.get('aromatic') or order==1.5 else (Chem.BondType.DOUBLE if order==2 else Chem.BondType.TRIPLE if order==3 else Chem.BondType.SINGLE); rw.AddBond(index[a],index[b],bt)
+        mol=rw.GetMol(); missing=[x for x in ids if x not in atoms_by_name]
+        if missing: raise RuntimeError(f"REFERENCE_CHEMISTRY_UNRESOLVED: CCD atoms missing from crystallographic instance: {missing}")
+        conf=Chem.Conformer(mol.GetNumAtoms())
+        for i,atom_id in enumerate(ids):
+            line=atoms_by_name[atom_id]; conf.SetAtomPosition(i,(float(line[30:38]),float(line[38:46]),float(line[46:54])))
+        mol.AddConformer(conf,assignId=True); Chem.SanitizeMol(mol)
+        return {'mol':mol,'component_id':component_id,'cif':local_json,'sdf':output_dir/f'{component_id}_ccd.sdf','metadata':{'component_id':component_id,'source':'local_json','source_url':str(local_json),'sha256':source.get('source_hash')},'mapping':{x:x for x in ids}}
     cif_path = output_dir / f"{component_id}_ccd.cif"
     url = f"https://files.rcsb.org/ligands/view/{component_id}.cif"
     if not cif_path.exists():
@@ -105,11 +125,11 @@ def reconstruct_reference_from_ccd(native_pdb: Path, output_dir: Path, component
     return {"mol": mol, "component_id": component_id, "cif": cif_path, "sdf": sdf_path, "metadata": metadata, "mapping": {atom_id: atoms_by_name[atom_id] for atom_id in atom_ids}}
 
 
-def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, object]:
+def prepare_native_ligand(native_pdb: Path, output_dir: Path, ccd_path: Path | None = None) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     crystal_pdb = output_dir / "native_ligand_crystal.pdb"; shutil.copy2(native_pdb, crystal_pdb)
     chemistry_dir = output_dir.parent.parent / "reference_chemistry"
-    reconstructed = reconstruct_reference_from_ccd(crystal_pdb, chemistry_dir)
+    reconstructed = reconstruct_reference_from_ccd(crystal_pdb, chemistry_dir, ccd_path=ccd_path)
     crystal = reconstructed["mol"]
     mapping_path = output_dir / "ccd_coordinate_mapping.csv"
     with mapping_path.open("w", newline="", encoding="utf-8") as fh:
@@ -136,7 +156,7 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, objec
         raise ValueError("Native ligand has no 3D crystallographic coordinates")
     w = Chem.SDWriter(str(prepared_sdf)); w.write(mol); w.close()
     native_pdbqt = output_dir / "native_ligand.pdbqt"
-    exe = shutil.which("mk_prepare_ligand.py") or shutil.which("mk_prepare_ligand")
+    exe = resolve_meeko_script('mk_prepare_ligand.py') or resolve_meeko_script('mk_prepare_ligand')
     if not exe: raise RuntimeError("Meeko ligand preparation command not found")
     prep_log = output_dir / "native_ligand_prepare.log"
     if run_command([exe, "-i", str(prepared_sdf.resolve()), "-o", str(native_pdbqt.resolve())], output_dir, prep_log) != 0:
@@ -244,9 +264,13 @@ def _overlay(crystal: Chem.Mol, pose: Chem.Mol, rmsd: float, destination: Path) 
     ax.set_title(f"Native redocking overlay — heavy-atom RMSD {rmsd:.3f} Å"); ax.legend(); destination.parent.mkdir(parents=True, exist_ok=True); fig.tight_layout(); fig.savefig(destination, dpi=220); plt.close(fig)
 
 
-def run_native_redocking(*, native_pdb: Path, receptor_pdbqt: Path, grid_dir: Path, work_dir: Path, output_dir: Path, grid: GridBox, params: DockingParameters, reference_info: dict[str, str], threshold: float = 2.0) -> dict[str, object]:
+def run_native_redocking(*, native_pdb: Path, receptor_pdbqt: Path, grid_dir: Path, work_dir: Path, output_dir: Path, grid: GridBox, params: DockingParameters, reference_info: dict[str, str], threshold: float = 2.0, ccd_path: Path | None = None) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True); work_dir.mkdir(parents=True, exist_ok=True)
-    native = prepare_native_ligand(native_pdb, output_dir)
+    # Keep the authoritative project CCD provenance all the way through the
+    # redocking helper.  This function is also called independently by the
+    # production executor, so relying on the caller's earlier preparation
+    # would allow a second, legacy reconstruction to replace the chemistry.
+    native = prepare_native_ligand(native_pdb, output_dir, ccd_path=ccd_path)
     crystal = native["crystal"]; crystal_pdb = native["crystal_pdb"]; crystal_sdf = native["crystal_sdf"]; prepared_sdf = native["prepared_sdf"]; native_pdbqt = native["pdbqt"]
     local = work_dir / native_pdbqt.name; shutil.copy2(native_pdbqt, local)
     receptor = grid_dir / "receptor.pdbqt"; shutil.copy2(receptor, work_dir / receptor.name)

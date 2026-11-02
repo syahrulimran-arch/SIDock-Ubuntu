@@ -5,11 +5,13 @@ from pathlib import Path
 from .pipeline import run_stage_runner
 from .config import load_config, summary, validate_config
 from .dashboard import write_dashboard, write_results
-from .state import project_status, STAGES, invalidate_for_config_change, _atomic_write
+from .state import project_status, STAGES, invalidate_for_config_change, _atomic_write, derived_stage_statuses, derived_project_status
 from .compliance import evaluate
 from .orchestrator import StageRunner, config_change_audit
 from .executors import production_context_from_project, build_production_executors
+from .project_lock import ProjectExecutionLocked
 from . import __version__
+from .dependencies import resolve_meeko_receptor_preparer, resolve_plip_executable
 
 
 def parser() -> argparse.ArgumentParser:
@@ -48,21 +50,32 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument('project', type=Path)
     return p
 
-def _doctor() -> int:
-    checks = [("Python", sys.executable), ("RDKit", importlib.util.find_spec("rdkit")), ("Meeko", importlib.util.find_spec("meeko")),
+def doctor_status() -> dict:
+    checks = [("Python", sys.executable), ("RDKit", importlib.util.find_spec("rdkit")), ("Meeko Python module", importlib.util.find_spec("meeko")),
               ("AutoGrid4", shutil.which("autogrid4")), ("AutoDock4", shutil.which("autodock4")),
-              ("Open Babel", shutil.which("obabel")), ("PLIP", importlib.util.find_spec("plip")), ("PyMOL", shutil.which("pymol"))]
-    for label, value in checks:
-        detail = value if isinstance(value, str) else ('available' if value else '')
-        print(f"[{'PASS' if value else 'FAIL'}] {label}{' ' + detail if detail else ''}")
-    return 0 if all(v for _, v in checks[:2]) and all(v for _, v in checks[2:]) else 1
+              ("Open Babel", shutil.which("obabel")), ("PyMOL", shutil.which("pymol"))]
+    items=[]
+    for label,value in checks:
+        available=bool(value); detail=value if isinstance(value,str) else ('available' if value else 'not detected')
+        items.append({'name':label,'status':'AVAILABLE' if available else 'MISSING','detail':detail,'required':label not in {'PLIP','PyMOL'}})
+    meeko=resolve_meeko_receptor_preparer(); items.append({'name':'Meeko receptor preparer (mk_prepare_receptor.py)','status':'AVAILABLE' if meeko['available'] else 'MISSING','detail':meeko.get('path') or meeko['message'],'version':meeko.get('version'),'required':True})
+    module=importlib.util.find_spec('plip'); items.append({'name':'PLIP Python module','status':'AVAILABLE' if module else 'MISSING','detail':str(module) if module else 'not detected','required':True})
+    plip=resolve_plip_executable(); items.append({'name':'PLIP executable','status':'AVAILABLE' if plip['available'] else 'MISSING','detail':plip.get('path') or plip['message'],'version':plip.get('version'),'required':True})
+    return {'status':'READY' if all(x['status']=='AVAILABLE' for x in items if x['required']) else 'NOT_READY','dependencies':items}
+
+def _doctor() -> int:
+    report = doctor_status()
+    for item in report['dependencies']:
+        detail = item.get('detail') or ''
+        version = f" ({item['version']})" if item.get('version') else ''
+        print(f"[{'PASS' if item['status']=='AVAILABLE' else 'FAIL'}] {item['name']}{version}{' ' + str(detail) if detail else ''}")
+    return 0 if report['status'] == 'READY' else 1
 
 def _print_status(project: Path) -> None:
     data = project_status(project)
-    statuses = [s.get('status','PENDING') for s in data.get('stages',{}).values()]
-    overall = 'COMPLETE' if statuses and all(s == 'PASS' for s in statuses) else ('FAILED' if 'FAIL' in statuses else 'INCOMPLETE')
-    print(f"Project status: {overall}")
-    for stage in STAGES: print(f"[{data.get('stages',{}).get(stage,{}).get('status','PENDING')}] {stage}")
+    stages = derived_stage_statuses(data)
+    print(f"Project status: {derived_project_status(data)}")
+    for stage in STAGES: print(f"[{stages.get(stage,{}).get('status','PENDING')}] {stage}")
 
 
 def main() -> None:
@@ -76,7 +89,10 @@ def main() -> None:
         errors = validate_config(config)
         if errors: raise SystemExit('Invalid configuration: ' + '; '.join(errors))
         print(summary(config))
-        result = run_stage_runner(args.project,args.receptor,args.ligands,config=config,padding=args.padding,parallel_jobs=args.jobs,top_n=args.top_n,seed=args.seed,reference_ligand=args.reference_ligand,allow_incomplete_peripheral=args.allow_incomplete_peripheral)
+        try:
+            result = run_stage_runner(args.project,args.receptor,args.ligands,config=config,padding=args.padding,parallel_jobs=args.jobs,top_n=args.top_n,seed=args.seed,reference_ligand=args.reference_ligand,allow_incomplete_peripheral=args.allow_incomplete_peripheral)
+        except ProjectExecutionLocked as exc:
+            raise SystemExit(str(exc))
         try:
             import yaml
             p = args.project / 'provenance'; p.mkdir(parents=True, exist_ok=True)
@@ -110,7 +126,10 @@ def main() -> None:
             for cid in selected:
                 if all(v.get('status')=='PASS' for v in state.get('compounds',{}).get(cid,{}).values() if isinstance(v,dict) and 'status' in v) and not args.force:
                     print(f'Compound {cid} is already complete.'); continue
-                runner.run_compound(cid,failed_only=args.failed_only,force=args.force)
+                try:
+                    runner.run_compound(cid,failed_only=args.failed_only,force=args.force)
+                except ProjectExecutionLocked as exc:
+                    raise SystemExit(str(exc))
             evaluate(args.project); return
         if (args.project / 'project_state.json').exists() and all(v.get('status') == 'PASS' for v in state.get('stages',{}).values()):
             _print_status(args.project); print('Nothing to resume; completed outputs were not rerun.')

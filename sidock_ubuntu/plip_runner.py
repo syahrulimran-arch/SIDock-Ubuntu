@@ -9,6 +9,7 @@ import csv, subprocess, xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from .errors import SIDockError
+from .dependencies import resolve_plip_executable
 
 @dataclass
 class PlipStageOutput:
@@ -28,9 +29,13 @@ def prepare_protonated_complex(complex_pdb: Path, destination: Path, *, runner=s
 
 def run_plip(protonated: Path, output_dir: Path, *, runner=subprocess.run) -> list[Path]:
     output_dir.mkdir(parents=True,exist_ok=True)
-    p=runner(['plip','-f',str(protonated),'--nohydro','-o',str(output_dir),'-x','-q'],capture_output=True,text=True)
+    resolved=resolve_plip_executable()
+    if not resolved['available']:
+        raise SIDockError('PLIP_FAILED',resolved['message'],{})
+    command=[resolved['path'],'-f',str(protonated),'--nohydro','-o',str(output_dir),'-x','-q']
+    p=runner(command,capture_output=True,text=True)
     reports=list(output_dir.rglob('*_report.xml'))
-    if p.returncode != 0 or not reports: raise SIDockError('PLIP_FAILED','PLIP failed or produced no XML report',{'command':['plip','-f',str(protonated),'--nohydro','-o',str(output_dir),'-x','-q']})
+    if p.returncode != 0 or not reports: raise SIDockError('PLIP_FAILED','PLIP failed or produced no XML report',{'command':command})
     return reports
 
 def _text(node, name):

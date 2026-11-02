@@ -69,7 +69,7 @@ class StageRunner:
             result[compound]=[s for s in COMPOUND_STAGES if (not failed_only or rec.get(s,{}).get('status') in {'FAIL','BLOCKED'}) and (force or rec.get(s,{}).get('status','PENDING')!='PASS')]
         return result
 
-    def run_compound(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
+    def _run_compound_unlocked(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
         state=project_status(self.project); rec=state.get('compounds',{}).get(compound)
         if rec is None: return [('compound','MISSING')]
         global_validation=state.get('stages',{}).get('VALIDATION')
@@ -104,6 +104,11 @@ class StageRunner:
             self._trace('COMPOUND',stage,r.status,compound=compound,error_code=r.error_code,started=None)
             if r.status!='PASS': break
         return result
+
+    def run_compound(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
+        from .project_lock import project_execution_lock, ProjectExecutionLocked
+        with project_execution_lock(self.project, {'interface':'CLI','action':'COMPOUND','compound_id':compound}):
+            return self._run_compound_unlocked(compound,failed_only=failed_only,force=force)
 
 def config_change_audit(project: Path, old: dict, new: dict) -> dict:
     owners=('INPUT','REFERENCE','RECEPTOR','VALIDATION','LIGAND_PREPARATION','GRID','DOCKING','PLIP','FIGURES','FINALIZATION')

@@ -29,12 +29,15 @@ def run_compound_preparation(sdf: Path, project: Path):
         outputs.append(prepare_ligand(source,target,project/'logs'/f'prepare_{source.stem}.log'))
     return outputs
 
-def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_dir, grid, params, reference_info):
-    native=prepare_native_ligand(native_pdb,output_dir)
-    return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info)
+def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_dir, grid, params, reference_info, ccd_path=None):
+    native=prepare_native_ligand(native_pdb,output_dir,ccd_path=ccd_path)
+    return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info,ccd_path=ccd_path)
 
 def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str):
     grid_dir.mkdir(parents=True,exist_ok=True)
+    import shutil
+    local_receptor=grid_dir/'receptor.pdbqt'
+    if receptor_pdbqt.resolve()!=local_receptor.resolve(): shutil.copy2(receptor_pdbqt,local_receptor)
     gpf=grid_dir/'receptor.gpf'; write_gpf(receptor_pdbqt,ligand_types,grid,gpf)
     code=run_command([autogrid,'-p',gpf.name,'-l','receptor.glg'],grid_dir,grid_dir/'autogrid.log')
     if code!=0: raise RuntimeError('E501 AUTOGRID_FAILED')
@@ -43,6 +46,11 @@ def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: lis
 def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path, dpf_dir: Path, dlg_dir: Path, ligand_types: list[str], params, autodock: str):
     dpf_dir.mkdir(parents=True,exist_ok=True); dlg_dir.mkdir(parents=True,exist_ok=True); work_dir.mkdir(parents=True,exist_ok=True)
     dpf=dpf_dir/f'{ligand_pdbqt.stem}.dpf'; write_dpf(receptor_stem,ligand_pdbqt,ligand_types,params,dpf)
+    # AutoDock resolves a relative -p filename from its working directory.
+    # Keep the canonical DPF in dpf_dir and provide the execution-local copy
+    # expected by the existing command contract.
+    import shutil
+    shutil.copy2(dpf, work_dir/dpf.name)
     dlg=dlg_dir/f'{ligand_pdbqt.stem}.dlg'; code=run_command([autodock,'-p',dpf.name,'-l',str(dlg.resolve())],work_dir,work_dir/f'{ligand_pdbqt.stem}.log')
     if code!=0 or not dlg.exists(): raise RuntimeError('E502 AUTODOCK_FAILED')
     return {'dpf':dpf,'dlg':dlg}

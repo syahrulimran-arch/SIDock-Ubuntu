@@ -1,0 +1,205 @@
+{
+  "component_id": "BTN",
+  "atoms": [
+    {
+      "id": "C11",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "O11",
+      "element": "O",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "O12",
+      "element": "O",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C10",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C9",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C8",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C7",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C2",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "S1",
+      "element": "S",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C6",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C5",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "N1",
+      "element": "N",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C3",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "O3",
+      "element": "O",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "N2",
+      "element": "N",
+      "formal_charge": 0,
+      "aromatic": false
+    },
+    {
+      "id": "C4",
+      "element": "C",
+      "formal_charge": 0,
+      "aromatic": false
+    }
+  ],
+  "bonds": [
+    {
+      "a": "C11",
+      "b": "O11",
+      "order": 2,
+      "aromatic": false
+    },
+    {
+      "a": "C11",
+      "b": "O12",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C11",
+      "b": "C10",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C10",
+      "b": "C9",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C9",
+      "b": "C8",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C8",
+      "b": "C7",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C7",
+      "b": "C2",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C2",
+      "b": "S1",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C2",
+      "b": "C4",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "S1",
+      "b": "C6",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C6",
+      "b": "C5",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C5",
+      "b": "N1",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C5",
+      "b": "C4",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "N1",
+      "b": "C3",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "C3",
+      "b": "O3",
+      "order": 2,
+      "aromatic": false
+    },
+    {
+      "a": "C3",
+      "b": "N2",
+      "order": 1,
+      "aromatic": false
+    },
+    {
+      "a": "N2",
+      "b": "C4",
+      "order": 1,
+      "aromatic": false
+    }
+  ]
+}

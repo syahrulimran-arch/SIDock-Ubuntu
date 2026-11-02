@@ -14,7 +14,7 @@ from .stages import (run_reference_stage, run_receptor_stage, run_grid_stage,
                      run_compound_docking, run_pose_extraction_stage,
                      run_cluster_stage, run_plip_stage, run_figures_stage,
                      run_finalization_stage)
-from .core import box_from_reference
+from .core import box_from_reference, pdbqt_atom_types, prepare_ligand, split_and_minimize_sdf, validate_ad4_types
 
 @dataclass
 class ProductionContext:
@@ -178,19 +178,30 @@ def _default_global_callback(ctx: ProductionContext, name: str):
         def grid():
             ctx.rehydrate_global_outputs(); ref=ctx.metadata.get('reference_output'); rec=ctx.metadata.get('receptor_output')
             if not ref or getattr(ref,'load_status',None)!='VALID' or not rec or getattr(rec,'load_status',None)!='VALID': raise RuntimeError('GLOBAL_PREREQUISITE_INVALID')
-            from .intake import hetero_groups
             ref_path=ctx.project/ref.reference_structure; grid_box=box_from_reference(ref_path)
-            return run_grid_stage(ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',grid_box,['C','N','O','S'],resolve_executable('autogrid4','AutoGrid4'))
+            if ctx.ligand_sdf and ctx.ligand_sdf.exists():
+                typing_dir=ctx.project/'provenance'/'grid_typing'; typing_dir.mkdir(parents=True,exist_ok=True)
+                (typing_dir/'prepared').mkdir(parents=True,exist_ok=True)
+                typed=[]
+                for source in split_and_minimize_sdf(ctx.ligand_sdf,typing_dir/'source'):
+                    target=typing_dir/'prepared'/f'{source.stem}.pdbqt'; prepare_ligand(source,target,typing_dir/f'{source.stem}.log'); typed.extend(pdbqt_atom_types(target))
+                ligand_types=validate_ad4_types(typed)
+            else:
+                # Compatibility for injected seam fixtures without an input SDF;
+                # production contexts always take the prepared-PDBQT path above.
+                ligand_types=validate_ad4_types(['C','N','OA','S'])
+            return run_grid_stage(ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',grid_box,ligand_types,resolve_executable('autogrid4','AutoGrid4'))
         return grid
     if name=='validation':
         def validation():
             ctx.rehydrate_global_outputs(); ref=ctx.metadata.get('reference_output'); rec=ctx.metadata.get('receptor_output'); grid=ctx.metadata.get('grid_output')
             if not all(x and getattr(x,'load_status',None)=='VALID' for x in (ref,rec,grid)): raise RuntimeError('GLOBAL_PREREQUISITE_INVALID')
             native=ctx.project/ref.reference_structure; info={'resname':ref.residue_name,'chain':ref.chain,'resseq':ref.residue_number}
-            native_prepared=prepare_native_ligand(native,ctx.project/'analysis/validation')
+            ccd_path=ctx.config.get('reference',{}).get('ccd_path')
+            native_prepared=prepare_native_ligand(native,ctx.project/'analysis/validation',ccd_path=Path(ccd_path) if ccd_path else None)
             box=type('Grid',(),{'center_x':(grid.center or [0,0,0])[0],'center_y':(grid.center or [0,0,0])[1],'center_z':(grid.center or [0,0,0])[2],'npts_x':(grid.dimensions or [0,0,0])[0],'npts_y':(grid.dimensions or [0,0,0])[1],'npts_z':(grid.dimensions or [0,0,0])[2],'spacing':grid.spacing or 0.375})()
             from .model import DockingParameters
-            return run_validation_stage(native,ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',ctx.project/'docking/work'/'native_validation',ctx.project/'analysis/validation',box,DockingParameters(ga_runs=ctx.config.get('validation',{}).get('ga_runs',10)),info)
+            return run_validation_stage(native,ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',ctx.project/'docking/work'/'native_validation',ctx.project/'analysis/validation',box,DockingParameters(ga_runs=ctx.config.get('validation',{}).get('ga_runs',10)),info,ccd_path=Path(ccd_path) if ccd_path else None)
         return validation
     if name=='finalization':
         def finalization():
@@ -240,14 +251,39 @@ def production_context_from_project(project: Path, config: dict) -> ProductionCo
     data=json.loads((project/'project.json').read_text(encoding='utf-8'))
     from .model import DockingParameters
     params=DockingParameters(**{k:v for k,v in data.get('docking',{}).items() if k in DockingParameters.__dataclass_fields__})
+    config=dict(config or {}); config['reference']=dict(config.get('reference',{}))
+    gui_inputs=project/'gui_inputs.json'
+    if gui_inputs.exists():
+        inputs=json.loads(gui_inputs.read_text(encoding='utf-8'))
+        if inputs.get('ccd'): config['reference']['ccd_path']=inputs['ccd']
+        if inputs.get('mmcif'): config['reference']['mmcif_path']=inputs['mmcif']
     ctx=ProductionContext(project, config, Path(data.get('receptor_source','')),
                           Path(data.get('ligand_source','')))
     ctx.rehydrate_global_outputs()
     def prepared(cid):
-        return {'prepared': project/'ligands/prepared'/f'{cid}.pdbqt'}
+        source_dir=project/'ligands/source'; prepared_dir=project/'ligands/prepared'
+        source_dir.mkdir(parents=True,exist_ok=True); prepared_dir.mkdir(parents=True,exist_ok=True)
+        source=source_dir/f'{cid}.sdf'; target=prepared_dir/f'{cid}.pdbqt'
+        if not source.exists():
+            sources=split_and_minimize_sdf(ctx.ligand_sdf,source_dir)
+            source=next((x for x in sources if x.stem==cid),source)
+        if not target.exists(): prepare_ligand(source,target,project/'logs'/f'prepare_{cid}.log')
+        from .reference import sha256_file
+        return {str(target): sha256_file(target)}
     def dock(cid):
         lig=project/'ligands/prepared'/f'{cid}.pdbqt'
-        return run_compound_docking(lig, 'receptor', project/'docking/work', project/'docking/dpf', project/'docking/dlg', [], params, 'autodock4')
+        work=project/'docking/work'; work.mkdir(parents=True,exist_ok=True)
+        grid=project/'grid'
+        import shutil
+        shutil.copy2(lig, work/lig.name)
+        receptor_work=project/'docking/receptor'; receptor_work.mkdir(parents=True,exist_ok=True)
+        receptor_source=project/'receptor/receptor.pdbqt'
+        if receptor_source.exists(): shutil.copy2(receptor_source,receptor_work/receptor_source.name)
+        for artifact_path in grid.glob('receptor.*.map*'):
+            shutil.copy2(artifact_path, work/artifact_path.name)
+        fld=grid/'receptor.maps.fld'
+        if fld.exists(): shutil.copy2(fld, work/fld.name)
+        return run_compound_docking(lig, 'receptor', work, project/'docking/dpf', project/'docking/dlg', pdbqt_atom_types(lig), params, 'autodock4')
     def pose(cid): return run_pose_extraction_stage(project/'docking/dlg'/f'{cid}.dlg', project/'analysis')
     def cluster(cid): return run_cluster_stage(project/'docking/dlg'/f'{cid}.dlg', project/'analysis')
     def plip(cid):

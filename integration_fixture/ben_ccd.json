@@ -1,0 +1,19 @@
+{
+  "component_id": "BEN",
+  "atoms": [
+    {"id": "C1", "element": "C", "formal_charge": 0, "aromatic": true},
+    {"id": "C2", "element": "C", "formal_charge": 0, "aromatic": true},
+    {"id": "C3", "element": "C", "formal_charge": 0, "aromatic": true},
+    {"id": "C4", "element": "C", "formal_charge": 0, "aromatic": true},
+    {"id": "C5", "element": "C", "formal_charge": 0, "aromatic": true},
+    {"id": "C6", "element": "C", "formal_charge": 0, "aromatic": true}
+  ],
+  "bonds": [
+    {"a": "C1", "b": "C2", "order": 1.5, "aromatic": true},
+    {"a": "C2", "b": "C3", "order": 1.5, "aromatic": true},
+    {"a": "C3", "b": "C4", "order": 1.5, "aromatic": true},
+    {"a": "C4", "b": "C5", "order": 1.5, "aromatic": true},
+    {"a": "C5", "b": "C6", "order": 1.5, "aromatic": true},
+    {"a": "C6", "b": "C1", "order": 1.5, "aromatic": true}
+  ]
+}

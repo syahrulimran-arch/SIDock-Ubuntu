@@ -72,7 +72,8 @@ def _candidate_metrics(group: HeteroGroup, pdb_lines: list[str]) -> dict:
     for line in group.atoms:
         try: occ.append(float(line[54:60])); bf.append(float(line[60:66]))
         except ValueError: pass
-    return {"ligand_code":group.resname,"chain":group.chain,"residue_number":group.resseq,"atom_count":group.atom_count,
+    atom_names=[line[12:16].strip() for line in group.atoms if line[76:78].strip().upper() not in {"H","D"}]
+    return {"ligand_code":group.resname,"chain":group.chain,"residue_number":group.resseq,"atom_count":group.atom_count,"atom_names":atom_names,
             "heavy_atom_count":sum(1 for x in group.atoms if x[76:78].strip() not in {"H","D"}),
             "occupancy":sum(occ)/len(occ) if occ else None,"B_factor_summary":sum(bf)/len(bf) if bf else None,
             "ccd_id":group.resname,"mapping_fraction":None,"mapping_ambiguity":None,"missing_atoms":None,"extra_atoms":None,
@@ -99,7 +100,7 @@ def write_reference_candidates(pdb: Path, destination: Path) -> list[dict]:
     rows=reference_candidates(pdb); destination.parent.mkdir(parents=True,exist_ok=True)
     for row in rows:
         row["selection_reason"] = "recommended deterministic top candidate" if row["recommended"] else "equivalent candidate retained for review"
-    fields=["ligand_code","chain","residue_number","atom_count","heavy_atom_count","occupancy","B_factor_summary","ccd_id","mapping_fraction","mapping_ambiguity","missing_atoms","extra_atoms","alternate_location","model_number","RSCC","RSR","chemical_fingerprint","CCD_available","CCD_mapping_complete","protein_contacts_5A","protein_contacts_8A","candidate_status","key","rank","recommended","selection_reason"]
+    fields=["ligand_code","chain","residue_number","atom_count","atom_names","heavy_atom_count","occupancy","B_factor_summary","ccd_id","mapping_fraction","mapping_ambiguity","missing_atoms","extra_atoms","alternate_location","model_number","RSCC","RSR","chemical_fingerprint","CCD_available","CCD_mapping_complete","protein_contacts_5A","protein_contacts_8A","candidate_status","key","rank","recommended","selection_reason"]
     with destination.open("w",newline="",encoding="utf-8") as fh:
         w=csv.DictWriter(fh,fieldnames=fields); w.writeheader(); w.writerows(rows)
     return rows

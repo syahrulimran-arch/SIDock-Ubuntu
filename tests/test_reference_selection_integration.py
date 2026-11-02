@@ -124,3 +124,12 @@ def test_selection_json_records_policy_and_reason(tmp_path):
     result=write_reference_selection(tmp_path,[candidate('A','X',binding_site_incomplete_residue_count=0)])
     data=json.loads(Path(result['selection_json']).read_text())
     assert data['reference_ranking_policy_version']=='1' and data['ranking_policy'] and data['selection_reason']
+
+def test_synthetic_ben_ccd_resolves_crystallographic_instance():
+    from sidock_ubuntu.intake import reference_candidates
+    from sidock_ubuntu.reference import load_local_ccd, map_instance_to_ccd
+    pdb=Path('integration_fixture/protein.pdb'); ccd=load_local_ccd(Path('integration_fixture/ben_ccd.json'),'BEN')
+    row=next(x for x in reference_candidates(pdb) if x['ligand_code']=='BEN')
+    mapped=map_instance_to_ccd(row,ccd['chemistry'])
+    assert ccd['parse_status']=='PASS' and ccd['component_id']=='BEN'
+    assert mapped['ccd_available'] and mapped['mapping_fraction']==1.0 and mapped['missing_heavy_atoms']==0

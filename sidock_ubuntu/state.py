@@ -90,3 +90,38 @@ def project_status(project: Path) -> dict:
     result = {"stages": {}, "updated": None}
     for stage in STAGES: result["stages"][stage] = {"status": "PENDING"}
     return result
+
+def aggregate_compound_stage_status(state: dict, stage: str) -> str:
+    """Derive a project-level compound-stage status without creating attempts."""
+    compounds = state.get('compounds', {}) or {}
+    validation = state.get('stages', {}).get('VALIDATION', {}).get('status')
+    if validation in {'FAIL', 'BLOCKED', 'STALE'}:
+        return 'BLOCKED'
+    if not compounds:
+        return 'PENDING'
+    statuses = [c.get(stage, {}).get('status', 'PENDING') for c in compounds.values()]
+    if all(x == 'PASS' for x in statuses): return 'PASS'
+    if any(x == 'RUNNING' for x in statuses): return 'RUNNING'
+    if any(x == 'PASS' for x in statuses) and any(x in {'FAIL', 'BLOCKED'} for x in statuses): return 'PARTIAL'
+    if all(x == 'FAIL' for x in statuses): return 'FAIL'
+    if any(x == 'BLOCKED' for x in statuses): return 'BLOCKED'
+    return 'PENDING'
+
+def derived_stage_statuses(state: dict) -> dict:
+    result = dict(state.get('stages', {}))
+    for stage in ('LIGAND_PREPARATION', 'DOCKING', 'POSE_EXTRACTION', 'CLUSTERING', 'PLIP', 'FIGURES'):
+        result[stage] = dict(result.get(stage, {}))
+        result[stage]['status'] = aggregate_compound_stage_status(state, 'preparation' if stage == 'LIGAND_PREPARATION' else stage.lower())
+    return result
+
+def derived_project_status(state: dict) -> str:
+    stages = derived_stage_statuses(state)
+    if not state.get('compounds'):
+        stored = stages.get('FINALIZATION', {}).get('status')
+        if stored in {'COMPLETE','COMPLETE_WITH_WARNINGS','PARTIAL','BLOCKED','STALE'}: return stored
+    if stages.get('VALIDATION', {}).get('status') in {'FAIL', 'BLOCKED'}: return 'BLOCKED'
+    final = stages.get('FINALIZATION', {}).get('status')
+    if final == 'PASS' and all(stages.get(x, {}).get('status') == 'PASS' for x in ('REFERENCE','RECEPTOR','GRID','VALIDATION','LIGAND_PREPARATION','DOCKING','POSE_EXTRACTION','CLUSTERING','PLIP','FIGURES')):
+        return 'COMPLETE'
+    if any(v.get('status') == 'FAIL' for v in stages.values() if isinstance(v, dict)): return 'FAILED'
+    return 'INCOMPLETE'

@@ -10,6 +10,15 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from .model import DockingParameters, GridBox
+from .dependencies import resolve_meeko_receptor_preparer, resolve_meeko_script
+
+SUPPORTED_AD4_TYPES = {'C','A','N','NA','OA','OS','HD','HS','S','SA','Cl','Br','I','F','P','Mg','Ca','Zn','Fe'}
+
+def validate_ad4_types(types: list[str]) -> list[str]:
+    ordered=sorted(set(types))
+    bad=[x for x in ordered if x not in SUPPORTED_AD4_TYPES]
+    if bad: raise RuntimeError(f'E501 UNSUPPORTED_AUTODOCK_TYPES: {", ".join(bad)}')
+    return ordered
 
 
 def resolve_executable(name: str, label: str) -> str:
@@ -70,8 +79,8 @@ def clean_receptor_pdb(source: Path, destination: Path, ref_resname: str, ref_ch
 
 
 def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_bad_res: bool = False) -> Path:
-    exe = shutil.which("mk_prepare_receptor.py") or shutil.which("mk_prepare_receptor")
-    if not exe:
+    resolved = resolve_meeko_receptor_preparer(); exe = resolved.get('path')
+    if not resolved['available']:
         raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
     base = destination.with_suffix("")
     cmd = [exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"]
@@ -116,7 +125,7 @@ def split_and_minimize_sdf(source: Path, out_dir: Path) -> list[Path]:
 
 
 def prepare_ligand(source: Path, destination: Path, log_path: Path) -> Path:
-    exe = shutil.which("mk_prepare_ligand.py") or shutil.which("mk_prepare_ligand")
+    exe = resolve_meeko_script('mk_prepare_ligand.py') or resolve_meeko_script('mk_prepare_ligand')
     if not exe:
         raise RuntimeError("Meeko ligand preparation command was not found (mk_prepare_ligand.py).")
     code = run_command([exe, "-i", str(source.resolve()), "-o", str(destination.resolve())], destination.parent, log_path)
@@ -152,6 +161,7 @@ def pdbqt_torsdof(path: Path) -> int:
 
 
 def write_gpf(receptor: Path, ligand_types: list[str], grid: GridBox, destination: Path) -> None:
+    ligand_types=validate_ad4_types(ligand_types)
     rec_types = " ".join(pdbqt_atom_types(receptor))
     lig_types = " ".join(ligand_types)
     lines = [

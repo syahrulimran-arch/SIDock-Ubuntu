@@ -250,10 +250,10 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     log('Pipeline complete')
     return {'project':project.path,'analysis':{'ranking':ranking_path,'clusters':clusters_path,'interactions':plip_combined},'statistics':stats,'finalization':finalization}
 
-def run_stage_runner(project_dir: Path, receptor: Path, sdf: Path, *, config: dict, padding: float=8.0,
+def _run_stage_runner_unlocked(project_dir: Path, receptor: Path, sdf: Path, *, config: dict, padding: float=8.0,
                      parallel_jobs: int=1, top_n: int=20, seed: int=20250301,
                      reference_ligand: str | None=None, allow_incomplete_peripheral: bool=False) -> dict[str, object]:
-    """Bootstrap-only entrypoint; StageRunner owns all global execution."""
+    """Run the persisted global and compound workflow through StageRunner."""
     project_dir=project_dir.resolve(); receptor=receptor.resolve(); sdf=sdf.resolve()
     project_json=project_dir/'project.json'
     if not project_json.exists():
@@ -264,4 +264,20 @@ def run_stage_runner(project_dir: Path, receptor: Path, sdf: Path, *, config: di
     registry=build_production_executors(ctx)
     runner=StageRunner(project_dir,config,registry)
     global_result=runner.run_global(('REFERENCE','RECEPTOR','GRID','VALIDATION'))
-    return {'project':project_dir,'global':global_result,'status':'BLOCKED' if any(s=='BLOCKED' for _,s in global_result) else 'RUNNING'}
+    if not global_result or global_result[-1][1] not in {'PASS', 'REUSED'}:
+        return {'project':project_dir,'global':global_result,'status':'BLOCKED'}
+    sources=split_and_minimize_sdf(sdf,project_dir/'ligands/source')
+    ensure_compounds(project_dir,[source.stem for source in sources])
+    # The outer run_stage_runner() already owns the project execution lock.
+    # Use the StageRunner's unlocked compound primitive here to avoid trying
+    # to acquire a second advisory lock from the same worker process.
+    compound_result={source.stem: runner._run_compound_unlocked(source.stem) for source in sources}
+    final_result=runner.run_global(('FINALIZATION',))
+    return {'project':project_dir,'global':global_result,'compounds':compound_result,'finalization':final_result,'status':'COMPLETE' if final_result and final_result[-1][1]=='PASS' else 'PARTIAL'}
+
+def run_stage_runner(project_dir: Path, receptor: Path, sdf: Path, *, config: dict, padding: float=8.0,
+                     parallel_jobs: int=1, top_n: int=20, seed: int=20250301,
+                     reference_ligand: str | None=None, allow_incomplete_peripheral: bool=False) -> dict[str, object]:
+    from .project_lock import project_execution_lock
+    with project_execution_lock(project_dir, {'interface':'CLI','action':'RUN'}):
+        return _run_stage_runner_unlocked(project_dir,receptor,sdf,config=config,padding=padding,parallel_jobs=parallel_jobs,top_n=top_n,seed=seed,reference_ligand=reference_ligand,allow_incomplete_peripheral=allow_incomplete_peripheral)

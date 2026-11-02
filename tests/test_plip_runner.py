@@ -14,7 +14,7 @@ def test_plip_command_includes_nohydro(tmp_path):
     (out/'x_report.xml').write_text('<report/>')
     def run(cmd,**kwargs): calls.append(cmd); return SimpleNamespace(returncode=0)
     run_plip(tmp_path/'p.pdb',out,runner=run)
-    assert '--nohydro' in calls[0] and calls[0][0]=='plip'
+    assert '--nohydro' in calls[0] and calls[0][0].endswith('/plip')
 
 def test_plip_failure_maps_to_e701(tmp_path):
     def run(cmd,**kwargs): return SimpleNamespace(returncode=1)

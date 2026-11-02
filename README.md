@@ -45,6 +45,32 @@ The workflow deliberately stops when a suitable bound reference ligand cannot be
 
 **Release-candidate status:** v0.4 orchestration, restart/recovery, provenance, finalization, and local CCD/mmCIF reference selection are verified by the repository test suite. Remote reference enrichment and StageRunner parallel execution are deferred.
 
+## v0.5 GUI foundation
+
+The development branch provides a local FastAPI thin client (`sidock-gui`) for
+creating/reopening projects, viewing persisted reference candidates, compound
+results, COMPLETE/PARTIAL/BLOCKED project summaries, and downloading canonical
+`results.csv`, `evidence.json`, and `report.html` artifacts. Result pages are
+read-only and use persisted backend state; they do not run scientific code.
+
+GUI execution is owned by a separate local worker process. Operational job
+records and history are stored under `provenance/`; project scientific state
+remains authoritative. A worker lost during GUI restart or host reboot is
+marked `INTERRUPTED` and requires an explicit Resume. Cancellation and systemd
+supervision are deferred; execution remains serial within each project.
+
+### Project execution safety
+
+Scientific writers share one backend-neutral Linux advisory lock at
+`provenance/project_execution.lock`. CLI `run`/`resume` and GUI workers acquire
+this same lock, so a project cannot be written concurrently by two interfaces.
+The lock file's diagnostic JSON is not authoritative; `fcntl` ownership is.
+Read-only status, inspection, results, and configuration views do not take the
+exclusive lock. GUI job records (`gui_job.json` and
+`gui_job_history.jsonl`) remain optional operational metadata and are not used
+by the CLI. A lock conflict is an operational error and does not create a
+scientific stage failure or execution-trace record.
+
 ## Ubuntu setup
 
 ```bash
