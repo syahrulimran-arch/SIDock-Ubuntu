@@ -1,0 +1,30 @@
+{
+  "selection_status": "DOCUMENTED_BEFORE_DOCKING; NO NEW DOCKING RUN",
+  "benchmarks": [
+    {
+      "pdb": "2GQG",
+      "ligand": "1N1",
+      "protein": "ABL kinase",
+      "resolution_A": 2.4,
+      "role": "current benchmark",
+      "source": "RCSB PDB"
+    },
+    {
+      "pdb": "1IEP",
+      "ligand": "STI",
+      "protein": "c-Abl kinase",
+      "resolution_A": 2.1,
+      "role": "moderately flexible independent benchmark",
+      "source": "RCSB PDB https://www.rcsb.org/structure/1IEP"
+    },
+    {
+      "pdb": "1M17",
+      "ligand": "AQ4",
+      "protein": "EGFR kinase",
+      "resolution_A": 2.6,
+      "role": "relatively rigid independent benchmark",
+      "source": "RCSB PDB https://www.rcsb.org/structure/1M17"
+    }
+  ],
+  "selection_notes": "Selected by structure quality and chemistry before docking; no selection based on expected RMSD. 1M17 is 2.6 A, retained as a realistic kinase benchmark despite exceeding the preferred 2.5 A target."
+}

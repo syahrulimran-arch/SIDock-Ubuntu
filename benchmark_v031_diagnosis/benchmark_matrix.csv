@@ -1,0 +1,4 @@
+PDB,ligand,resolution,heavy_atoms,rotatable_bonds,GA_runs,minimum_RMSD,lowest_energy_RMSD,native_like_count,total_runs,sampling_result,ranking_result,PLIP_status
+2GQG,1N1,2.4,33,7,20,1.485,5.37,2,20,SAMPLING_PASS,RANKING_UNRESOLVED,NOT_RELIABLE; ligand not recognized in corrected export
+1IEP,STI,2.1,,,,,,,,NOT_RUN,NOT_RUN,NOT_RUN
+1M17,AQ4,2.6,,,,,,,,NOT_RUN,NOT_RUN,NOT_RUN

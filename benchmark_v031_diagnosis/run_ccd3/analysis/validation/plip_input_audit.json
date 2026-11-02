@@ -1,0 +1,9 @@
+{
+  "complex": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/reprocessed_standard/complexes/model_8_complex.pdb",
+  "ATOM_records": 2249,
+  "HETATM_records": 33,
+  "CONECT_records": 20,
+  "ligand_UNL_records": 33,
+  "PLIP_ligand_recognized": false,
+  "note": "PDB export needs HETATM/ligand residue validation before treating zero PLIP output as biological absence."
+}

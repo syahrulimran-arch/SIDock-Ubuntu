@@ -105,5 +105,8 @@
     }
   },
   "rmsd_method": "fixed-frame symmetry-corrected heavy-atom RMSD after PDBQT traversal-to-CCD mapping",
-  "decision": "DEVELOPMENT ONLY"
+  "decision": "DEVELOPMENT ONLY",
+  "ranking_validation": "RANKING_UNRESOLVED",
+  "benchmark_selection": "BENCHMARK_SELECTION_V031.json",
+  "additional_benchmarks_status": "NOT_RUN; interaction pipeline blocked by PLIP ligand recognition audit"
 }
