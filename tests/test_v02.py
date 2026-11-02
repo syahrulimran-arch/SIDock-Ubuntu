@@ -7,7 +7,7 @@ from rdkit.Chem import AllChem
 from sidock_ubuntu.analysis import parse_dlg_clusters
 from sidock_ubuntu.contacts import detect_contacts
 from sidock_ubuntu.pipeline import enforce_redocking_validation
-from sidock_ubuntu.validation import heavy_atom_rmsd
+from sidock_ubuntu.validation import heavy_atom_rmsd, fixed_frame_symmetry_corrected_heavy_atom_rmsd
 
 
 def _mol(distance: float):
@@ -23,6 +23,20 @@ def test_rmsd_mapping_pass_and_fail():
     crystal = _mol(1.5)
     assert heavy_atom_rmsd(crystal, _mol(1.5)) <= 2.0
     assert heavy_atom_rmsd(crystal, _mol(6.0)) > 2.0
+
+
+def test_fixed_frame_rmsd_translation_and_rotation():
+    crystal = _mol(1.5)
+    translated = _mol(1.5)
+    conf = translated.GetConformer()
+    for i in range(translated.GetNumAtoms()):
+        p = conf.GetAtomPosition(i); conf.SetAtomPosition(i, (p.x + 10.0, p.y, p.z))
+    assert fixed_frame_symmetry_corrected_heavy_atom_rmsd(crystal, translated) == pytest.approx(10.0)
+    rotated = _mol(1.5)
+    conf = rotated.GetConformer()
+    for i in range(rotated.GetNumAtoms()):
+        p = conf.GetAtomPosition(i); conf.SetAtomPosition(i, (-p.x, -p.y, p.z))
+    assert fixed_frame_symmetry_corrected_heavy_atom_rmsd(crystal, rotated) > 0.0
 
 
 def test_dlg_cluster_parser(tmp_path: Path):

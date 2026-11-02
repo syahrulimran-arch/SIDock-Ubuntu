@@ -1,0 +1,21 @@
+{
+  "algorithm": "fixed_frame_symmetry_corrected_heavy_atom_RMSD",
+  "alignment_performed": false,
+  "results": {
+    "run_native": {
+      "min_fixed_frame_RMSD_A": 7.975952535495987,
+      "max_fixed_frame_RMSD_A": 11.09285877299336,
+      "native_like_count": 0
+    },
+    "run_ccd3": {
+      "min_fixed_frame_RMSD_A": 8.196496868119388,
+      "max_fixed_frame_RMSD_A": 12.610399576732233,
+      "native_like_count": 0
+    },
+    "rigid": {
+      "min_fixed_frame_RMSD_A": 0.23426319050214156,
+      "max_fixed_frame_RMSD_A": 0.24648842864228987,
+      "native_like_count": 20
+    }
+  }
+}

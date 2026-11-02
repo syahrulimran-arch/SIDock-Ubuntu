@@ -161,17 +161,30 @@ def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
     return mol
 
 
-def heavy_atom_rmsd(crystal: Chem.Mol, pose: Chem.Mol) -> float:
+def fixed_frame_symmetry_corrected_heavy_atom_rmsd(crystal: Chem.Mol, pose: Chem.Mol) -> float:
+    """Direct Cartesian RMSD; symmetry changes atom correspondence only."""
     crystal_h = Chem.RemoveHs(crystal)
     pose_h = Chem.RemoveHs(pose)
     mcs = rdFMCS.FindMCS([crystal_h, pose_h], atomCompare=rdFMCS.AtomCompare.CompareElements, bondCompare=rdFMCS.BondCompare.CompareOrder, ringMatchesRingOnly=True, completeRingsOnly=True, timeout=10)
     if mcs.canceled or not mcs.smartsString:
         raise ValueError("No chemically valid heavy-atom correspondence found")
     query = Chem.MolFromSmarts(mcs.smartsString)
-    a = crystal_h.GetSubstructMatch(query); b = pose_h.GetSubstructMatch(query)
-    if len(a) != crystal_h.GetNumAtoms() or len(b) != pose_h.GetNumAtoms():
+    crystal_matches = crystal_h.GetSubstructMatches(query, uniquify=False)
+    pose_matches = pose_h.GetSubstructMatches(query, uniquify=False)
+    if not crystal_matches or not pose_matches or len(crystal_matches[0]) != crystal_h.GetNumAtoms() or len(pose_matches[0]) != pose_h.GetNumAtoms():
         raise ValueError("Atom mapping does not cover all heavy atoms")
-    return float(AllChem.GetBestRMS(crystal_h, pose_h, map=[list(zip(a, b))]))
+    cconf, pconf = crystal_h.GetConformer(), pose_h.GetConformer()
+    best = float("inf")
+    for a in crystal_matches:
+        for b in pose_matches:
+            value = math.sqrt(sum(sum((cconf.GetAtomPosition(i)[k] - pconf.GetAtomPosition(j)[k]) ** 2 for k in range(3)) for i, j in zip(a, b)) / len(a))
+            best = min(best, value)
+    return float(best)
+
+
+def heavy_atom_rmsd(crystal: Chem.Mol, pose: Chem.Mol) -> float:
+    """Backward-compatible name for the fixed-frame metric."""
+    return fixed_frame_symmetry_corrected_heavy_atom_rmsd(crystal, pose)
 
 
 def _atom_name(atom) -> str:
