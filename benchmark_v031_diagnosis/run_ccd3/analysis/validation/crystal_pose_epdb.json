@@ -1,0 +1,9 @@
+{
+  "intermolecular_energy_kcal_mol": -11.3838,
+  "vdw_hbond_desolvation_kcal_mol": -11.3838,
+  "electrostatic_kcal_mol": 0.0,
+  "internal_ligand_energy_kcal_mol": -1.64,
+  "torsional_free_energy_kcal_mol": 2.39,
+  "estimated_free_energy_kcal_mol": -10.64,
+  "source": "AutoDock4 epdb DLG"
+}

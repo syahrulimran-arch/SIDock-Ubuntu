@@ -1,0 +1,36 @@
+{
+  "crystal_center_A": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "about_A": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "tran0_A": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "quaternion0": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "dihe0": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "reconstructed_initial_RMSD_A": 0.0,
+  "status": "PASS_BY_DPF_SEMANTIC_RECONSTRUCTION",
+  "actual_AutoDock_initial_state_verified_from_DLG": false
+}

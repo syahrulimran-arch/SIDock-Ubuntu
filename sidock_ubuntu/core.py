@@ -161,7 +161,7 @@ def write_gpf(receptor: Path, ligand_types: list[str], grid: GridBox, destinatio
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters, destination: Path) -> None:
+def _dpf_prefix(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters) -> list[str]:
     center=pdbqt_center(ligand)
     lines = [
         "autodock_parameter_version 4.2", "outlev 1", "intelec", f"seed {params.random_seed} {params.random_seed + 1}",
@@ -170,12 +170,35 @@ def write_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params:
     for t in ligand_types:
         lines.append(f"map {receptor_stem}.{t}.map")
     lines += [f"elecmap {receptor_stem}.e.map", f"desolvmap {receptor_stem}.d.map", f"move {ligand.name}",
-              "about %.3f %.3f %.3f" % center, "tran0 random", "quaternion0 random", "dihe0 random", "torsdof %d" % pdbqt_torsdof(ligand),
+              "about %.3f %.3f %.3f" % center, "torsdof %d" % pdbqt_torsdof(ligand),
+              ]
+    return lines
+
+
+def write_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters, destination: Path) -> None:
+    lines = _dpf_prefix(receptor_stem, ligand, ligand_types, params)
+    lines += ["tran0 random", "quaternion0 random", "dihe0 random",
               "rmstol %.2f" % params.rmstol, "ga_pop_size %d" % params.ga_pop_size,
               "ga_num_evals %d" % params.ga_num_evals, "ga_num_generations %d" % params.ga_num_generations,
               "ga_elitism 1", "ga_mutation_rate 0.02", "ga_crossover_rate 0.8", "ga_window_size 10", "ga_cauchy_alpha 0.0", "ga_cauchy_beta 1.0", "set_ga",
               "sw_max_its 300", "sw_max_succ 4", "sw_max_fail 4", "sw_rho 1.0", "sw_lb_rho 0.01", "ls_search_freq 0.26", "set_psw1",
               "ga_run %d" % params.ga_runs, "analysis"]
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_native_start_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters, destination: Path, *, epdb: bool = False, local_runs: int | None = None) -> None:
+    """Write a DPF whose absolute tran0 is the ligand's crystal center."""
+    center = pdbqt_center(ligand)
+    lines = _dpf_prefix(receptor_stem, ligand, ligand_types, params)
+    lines += ["tran0 %.3f %.3f %.3f" % center, "quaternion0 0.0 0.0 0.0 1.0"]
+    torsdof = pdbqt_torsdof(ligand)
+    if torsdof:
+        lines.append("dihe0 " + " ".join(["0.0"] * torsdof))
+    lines += ["rmstol %.2f" % params.rmstol, "sw_max_its 300", "sw_max_succ 4", "sw_max_fail 4", "sw_rho 1.0", "sw_lb_rho 0.01", "ls_search_freq 1.0", "set_psw1"]
+    if epdb:
+        lines += ["epdb"]
+    elif local_runs is not None:
+        lines += [f"do_local_only {local_runs}", "analysis"]
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

@@ -1,0 +1,87 @@
+{
+  "previous_experiment_classification": "LOCAL_SEARCH_INITIALIZATION_DEFECT",
+  "calculated_crystal_center_A": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "corrected_tran0_A": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "reconstructed_initial_RMSD_A": 0.0,
+  "epdb": {
+    "intermolecular_energy_kcal_mol": -11.3838,
+    "vdw_hbond_desolvation_kcal_mol": -11.3838,
+    "electrostatic_kcal_mol": 0.0,
+    "internal_ligand_energy_kcal_mol": -1.64,
+    "torsional_free_energy_kcal_mol": 2.39,
+    "estimated_free_energy_kcal_mol": -10.64,
+    "source": "AutoDock4 epdb DLG"
+  },
+  "corrected_flexible_local_search": {
+    "count": 20,
+    "minimum_RMSD_A": 8.242296316910572,
+    "maximum_RMSD_A": 8.254490897063063,
+    "mean_RMSD_A": 8.249393326399783,
+    "median_RMSD_A": 8.24901729196569,
+    "native_like_count": 0,
+    "energies": [
+      -9.12,
+      -9.12,
+      -9.11,
+      -9.11,
+      -9.11,
+      -9.1,
+      -9.11,
+      -9.13,
+      -9.12,
+      -9.11,
+      -9.12,
+      -9.11,
+      -9.11,
+      -9.11,
+      -9.12,
+      -9.1,
+      -9.13,
+      -9.12,
+      -9.1,
+      -9.13
+    ]
+  },
+  "corrected_rigid_local_search": {
+    "count": 20,
+    "starting_RMSD_A": 0.0,
+    "minimum_final_RMSD_A": 0.19778071726336716,
+    "maximum_final_RMSD_A": 0.27249909646778286,
+    "mean_final_RMSD_A": 0.24296021861849898,
+    "native_like_count": 20,
+    "energies": [
+      -11.49,
+      -11.48,
+      -11.48,
+      -11.48,
+      -11.5,
+      -11.48,
+      -11.49,
+      -11.48,
+      -11.49,
+      -11.49,
+      -11.48,
+      -11.49,
+      -11.49,
+      -11.48,
+      -11.49,
+      -11.49,
+      -11.49,
+      -11.5,
+      -11.48,
+      -11.48
+    ]
+  },
+  "actual_initial_state_verified_from_DLG": false,
+  "classification": "LOCAL_SEARCH_INITIAL_STATE_UNVERIFIED",
+  "reason": "Corrected DPF semantics reconstruct the crystal pose exactly, and rigid control remains native-like, but AutoDock DLG does not expose per-run initial states. Flexible final RMSD cannot be attributed conclusively to movement from the verified initial state.",
+  "decision": "DEVELOPMENT ONLY"
+}

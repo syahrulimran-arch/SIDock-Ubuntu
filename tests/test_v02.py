@@ -8,6 +8,8 @@ from sidock_ubuntu.analysis import parse_dlg_clusters
 from sidock_ubuntu.contacts import detect_contacts
 from sidock_ubuntu.pipeline import enforce_redocking_validation
 from sidock_ubuntu.validation import heavy_atom_rmsd, fixed_frame_symmetry_corrected_heavy_atom_rmsd
+from sidock_ubuntu.core import write_native_start_dpf
+from sidock_ubuntu.model import DockingParameters
 
 
 def _mol(distance: float):
@@ -37,6 +39,20 @@ def test_fixed_frame_rmsd_translation_and_rotation():
     for i in range(rotated.GetNumAtoms()):
         p = conf.GetAtomPosition(i); conf.SetAtomPosition(i, (-p.x, -p.y, p.z))
     assert fixed_frame_symmetry_corrected_heavy_atom_rmsd(crystal, rotated) > 0.0
+
+
+def test_native_start_dpf_uses_absolute_ligand_center(tmp_path: Path):
+    ligand = tmp_path / 'ligand.pdbqt'
+    ligand.write_text('ATOM      1  C   UNL     1      10.000  20.000  30.000  1.00  0.00    +0.000 C  \nATOM      2  C   UNL     1      12.000  20.000  30.000  1.00  0.00    +0.000 C  \nTORSDOF 0\n')
+    out = tmp_path / 'native.dpf'; write_native_start_dpf('r', ligand, ['C'], DockingParameters(), out)
+    text = out.read_text(); assert 'about 11.000 20.000 30.000' in text; assert 'tran0 11.000 20.000 30.000' in text; assert 'quaternion0 0.0 0.0 0.0 1.0' in text; assert 'tran0 0 0 0' not in text
+
+
+def test_epdb_dpf_generation(tmp_path: Path):
+    ligand = tmp_path / 'ligand.pdbqt'
+    ligand.write_text('ATOM      1  C   UNL     1      10.000  20.000  30.000  1.00  0.00    +0.000 C  \nTORSDOF 0\n')
+    out = tmp_path / 'epdb.dpf'; write_native_start_dpf('r', ligand, ['C'], DockingParameters(), out, epdb=True)
+    text = out.read_text(); assert '\nepdb\n' in text; assert 'do_local_only' not in text
 
 
 def test_dlg_cluster_parser(tmp_path: Path):
