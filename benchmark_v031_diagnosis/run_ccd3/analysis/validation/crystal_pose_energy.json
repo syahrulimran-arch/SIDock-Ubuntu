@@ -1,0 +1,6 @@
+{
+  "status": "UNSUPPORTED_BY_INSTALLED_AUTODOCK4_CLI",
+  "autodock_help": "AutoDock4 exposes only -p/-l/-t/-d/-C/--help; no standalone energy-evaluation directive was documented by the installed executable.",
+  "command_checked": "/home/imran/.local/bin/autodock4 --help",
+  "note": "No energy value was guessed or substituted."
+}

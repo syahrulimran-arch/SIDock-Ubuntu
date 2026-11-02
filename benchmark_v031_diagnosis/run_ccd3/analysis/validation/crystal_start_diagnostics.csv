@@ -1,0 +1,4 @@
+variant,status,min_RMSD_A,lowest_energy_RMSD_A,median_RMSD_A,best_energy,native_like_count,cluster_count,notes
+A,completed,6.807835,6.935046,6.9,-11.61,0,7,standard corrected baseline
+B,not_run,,,,,,,not required after decisive rigid control; no search parameters changed
+C,not_run,,,,,,,not required after decisive rigid control; no search parameters changed

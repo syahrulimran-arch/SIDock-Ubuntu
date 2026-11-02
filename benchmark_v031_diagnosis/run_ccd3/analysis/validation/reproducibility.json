@@ -1,0 +1,5 @@
+{
+  "status": "NOT_COMPLETED_FOR_CORRECTED_RUNS",
+  "criterion": "compare parsed energies, coordinates, RMSDs, clusters and rankings rather than DLG bytes",
+  "note": "Rigid control was run once; no additional stochastic run was performed."
+}

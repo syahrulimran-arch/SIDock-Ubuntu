@@ -1,0 +1,6 @@
+{
+  "native_crystal_pose_energy": "not available: AutoDock4 standalone evaluator not exposed by installed CLI",
+  "best_redocked_energy_kcal_mol": -11.61,
+  "best_redocked_rmsd_A": 6.935046,
+  "comparison_status": "INCOMPLETE_PENDING_SUPPORTED_ENERGY_EVALUATOR"
+}

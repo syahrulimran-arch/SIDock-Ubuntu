@@ -1,0 +1,8 @@
+{
+  "min_rmsd_A": 0.00043904336777387794,
+  "lowest_energy_rmsd_A": 0.00046662888080110715,
+  "best_energy": -11.51,
+  "native_like_count": 20,
+  "cluster_count": 1,
+  "cluster_containing_min_rmsd": "not directly assigned by AD4 histogram representative mapping"
+}

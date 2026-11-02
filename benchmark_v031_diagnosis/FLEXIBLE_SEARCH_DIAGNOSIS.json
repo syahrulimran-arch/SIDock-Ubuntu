@@ -1,0 +1,20 @@
+{
+  "classification": "FLEXIBLE_SEARCH_FAILURE",
+  "evidence": {
+    "standard_flexible_min_rmsd_A": 6.807835,
+    "standard_flexible_lowest_energy_rmsd_A": 6.935046,
+    "standard_native_like_count": 0,
+    "rigid_min_rmsd_A": 0.000439,
+    "rigid_lowest_energy_rmsd_A": 0.000467,
+    "rigid_native_like_count": 20,
+    "rigid_best_energy": -11.51,
+    "rigid_cluster_count": 1,
+    "binding_site_heavy_atom_rmsd_A": 0.0,
+    "binding_site_max_displacement_A": 0.0
+  },
+  "interpretation": "Rigid ligand reproduces the crystal placement under identical receptor/grid/search settings, while flexible ligand does not. This implicates flexible-ligand search/torsion exploration, not translation/orientation search or receptor coordinate preparation. No validation pass is claimed.",
+  "crystal_energy": "unsupported by installed AutoDock4 standalone CLI; no value substituted",
+  "crystal_start": "A baseline retained; B/C not run after decisive rigid control",
+  "search_depth": "50/100 deferred; not needed to identify current failure and not used to tune protocol",
+  "decision": "DEVELOPMENT ONLY"
+}

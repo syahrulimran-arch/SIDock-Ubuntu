@@ -1,0 +1,4 @@
+{
+  "status": "NOT_RUN",
+  "reason": "Installed AutoDock4 CLI exposes no documented standalone local-search/energy-evaluation directive; rigid control already separated placement from flexible search."
+}
