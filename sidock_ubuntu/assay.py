@@ -27,13 +27,13 @@ def extract_sdf_assay(sdf: Path, destination: Path) -> list[dict[str, object]]:
             continue
         props = {k: mol.GetProp(k) for k in mol.GetPropNames()}
         name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
-        ligand = next((props[k].strip() for k in ID_KEYS if k in props and props[k].strip()), name or f"ligand_{idx}")
+        ligand = next((props[k].strip() for k in ID_KEYS if k in props and props[k].strip()), name)
         raw = next((props[k] for k in IC50_KEYS if k in props), None)
         ic50 = _float(raw)
-        rows.append({"ligand": ligand, "ic50_uM": ic50, "pIC50": (-math.log10(ic50 * 1e-6) if ic50 and ic50 > 0 else None)})
+        rows.append({"ligand": ligand, "ic50_uM": ic50, "pIC50": (-math.log10(ic50 * 1e-6) if ic50 and ic50 > 0 else None), "input_record_index": idx, "final_status": "ACCEPTED" if ligand else "REJECTED", "failure_reason": "" if ligand else "missing compound ID"})
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["ligand", "ic50_uM", "pIC50"])
+        writer = csv.DictWriter(fh, fieldnames=["ligand", "ic50_uM", "pIC50", "input_record_index", "final_status", "failure_reason"])
         writer.writeheader(); writer.writerows(rows)
     return rows
 

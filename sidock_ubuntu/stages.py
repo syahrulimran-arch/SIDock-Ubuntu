@@ -1,0 +1,94 @@
+"""Thin, validated-backend stage seams.
+
+These functions delegate to existing scientific implementations. They do not
+change command construction or scientific algorithms. PLIP is intentionally
+not represented here until a real source callable is recovered.
+"""
+from __future__ import annotations
+from pathlib import Path
+from .core import box_from_reference, clean_receptor_pdb, prepare_receptor, split_and_minimize_sdf, prepare_ligand, write_gpf, write_dpf, run_command
+from .analysis import extract_docking_poses, analyze_autodock_clusters
+from .validation import prepare_native_ligand, run_native_redocking
+from .figures import pymol_binding_figures
+from .plip_runner import run_plip_analysis
+
+def run_reference_stage(pdb: Path, project: Path, reference_group):
+    from .intake import write_group
+    out=project/'receptor/reference_ligand.pdb'; write_group(reference_group,out)
+    return {'reference_pdb':out,'grid':box_from_reference(out)}
+
+def run_receptor_stage(pdb: Path, project: Path, reference_group, *, allow_bad_res=False):
+    clean=clean_receptor_pdb(pdb,project/'receptor/receptor_clean.pdb',reference_group.resname,reference_group.chain,reference_group.resseq)
+    rec=prepare_receptor(clean,project/'receptor/receptor.pdbqt',project/'logs/prepare_receptor.log',allow_bad_res=allow_bad_res)
+    return {'clean':clean,'receptor_pdbqt':rec}
+
+def run_compound_preparation(sdf: Path, project: Path):
+    sources=split_and_minimize_sdf(sdf,project/'ligands/source'); outputs=[]
+    for source in sources:
+        target=project/'ligands/prepared'/f'{source.stem}.pdbqt'
+        outputs.append(prepare_ligand(source,target,project/'logs'/f'prepare_{source.stem}.log'))
+    return outputs
+
+def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_dir, grid, params, reference_info):
+    native=prepare_native_ligand(native_pdb,output_dir)
+    return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info)
+
+def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str):
+    grid_dir.mkdir(parents=True,exist_ok=True)
+    gpf=grid_dir/'receptor.gpf'; write_gpf(receptor_pdbqt,ligand_types,grid,gpf)
+    code=run_command([autogrid,'-p',gpf.name,'-l','receptor.glg'],grid_dir,grid_dir/'autogrid.log')
+    if code!=0: raise RuntimeError('E501 AUTOGRID_FAILED')
+    return {'gpf':gpf,'glg':grid_dir/'receptor.glg'}
+
+def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path, dpf_dir: Path, dlg_dir: Path, ligand_types: list[str], params, autodock: str):
+    dpf_dir.mkdir(parents=True,exist_ok=True); dlg_dir.mkdir(parents=True,exist_ok=True); work_dir.mkdir(parents=True,exist_ok=True)
+    dpf=dpf_dir/f'{ligand_pdbqt.stem}.dpf'; write_dpf(receptor_stem,ligand_pdbqt,ligand_types,params,dpf)
+    dlg=dlg_dir/f'{ligand_pdbqt.stem}.dlg'; code=run_command([autodock,'-p',dpf.name,'-l',str(dlg.resolve())],work_dir,work_dir/f'{ligand_pdbqt.stem}.log')
+    if code!=0 or not dlg.exists(): raise RuntimeError('E502 AUTODOCK_FAILED')
+    return {'dpf':dpf,'dlg':dlg}
+
+def _single_dlg(dlg_or_dir: Path) -> Path | None:
+    if dlg_or_dir.is_file():
+        return dlg_or_dir
+    return next(iter(sorted(dlg_or_dir.glob('*.dlg'))),None)
+
+def run_pose_extraction_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
+    """Extract poses using the existing analysis implementation.
+
+    The current backend writes pose/complex artifacts and ranking in one
+    validated operation; this seam exposes the extraction contract without
+    changing that implementation.
+    """
+    dlg=_single_dlg(dlg_dir)
+    if dlg is None: raise RuntimeError('E602 POSE_MAPPING_FAILED')
+    receptor=dlg_dir.parent.parent/'receptor'/'receptor.pdbqt'
+    return extract_docking_poses(dlg,analysis_dir/'poses',analysis_dir/'complexes',receptor)
+
+def run_cluster_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
+    """Read the existing DLG-derived cluster output without reclustering."""
+    dlg=_single_dlg(dlg_dir)
+    if dlg is None: raise RuntimeError('E601 DLG_PARSE_FAILED')
+    result=analyze_autodock_clusters(dlg,analysis_dir/'clusters.csv')
+    return result
+
+def run_pose_and_cluster_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
+    pose=run_pose_extraction_stage(dlg_dir,analysis_dir,top_n)
+    cluster=run_cluster_stage(dlg_dir,analysis_dir,top_n)
+    return {**pose, **cluster}
+
+def run_plip_stage(complex_pdb: Path, work_dir: Path, normalized_csv: Path, *, compound_id='', pose_id=''):
+    """Use the recovered Open Babel + PLIP production path; never contacts.py."""
+    return run_plip_analysis(complex_pdb, work_dir, normalized_csv, compound_id=compound_id, pose_id=pose_id)
+
+def run_finalization_stage(project: Path, evidence: dict | None = None, *, write_results_fn, write_dashboard_fn, compliance_fn=None):
+    """Finalize machine-readable project outputs; no manuscript generation."""
+    if evidence is None:
+        from .finalization import load_finalization_input, snapshot_evidence
+        evidence=snapshot_evidence(load_finalization_input(project))
+    analysis=project/'analysis'; analysis.mkdir(parents=True,exist_ok=True)
+    evidence_tmp=analysis/'evidence.json.tmp'; evidence_tmp.write_text(__import__('json').dumps(evidence,indent=2,sort_keys=True),encoding='utf-8'); evidence_tmp.replace(analysis/'evidence.json')
+    write_results_fn(project); write_dashboard_fn(project)
+    return compliance_fn(project) if compliance_fn else {'status':'NOT_RUN'}
+
+def run_figures_stage(analysis_dir: Path, figures_dir: Path, limit=5):
+    return pymol_binding_figures(analysis_dir,figures_dir,limit=limit)

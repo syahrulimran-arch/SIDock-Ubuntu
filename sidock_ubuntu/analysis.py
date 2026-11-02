@@ -2,9 +2,62 @@ from __future__ import annotations
 
 import csv
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from .core import parse_best_energy
 from .contacts import detect_contacts, write_contacts
+
+@dataclass
+class PoseExtractionResult:
+    dlg_path: Path
+    poses: list[dict]
+    selected_pose_path: Path | None
+    selected_model: int | None
+    lowest_energy: float | None
+    energy_ranking: list[dict]
+    mapping_status: str
+    warnings: list[str]
+    provenance: dict
+
+@dataclass
+class ClusterAnalysisResult:
+    cluster_count: int
+    clusters: list[dict]
+    largest_cluster_rank: int | None
+    largest_cluster_population: int | None
+    lowest_energy_cluster_rank: int | None
+    cluster_table_path: Path | None
+    warnings: list[str]
+
+def parse_dlg_models(dlg: Path) -> list[dict]:
+    """Read AutoDock models without contacts, figures, or summary side effects."""
+    return [{'model': n, 'energy': e, 'atoms': atoms} for n,e,atoms in _extract_models(dlg)]
+
+def rank_poses_by_energy(poses: list[dict]) -> list[dict]:
+    return sorted([p for p in poses if p.get('energy') is not None], key=lambda p: (float(p['energy']), int(p['model'])))
+
+def extract_docking_poses(dlg: Path, poses_dir: Path, complexes_dir: Path, receptor: Path) -> PoseExtractionResult:
+    models=parse_dlg_models(dlg); poses_dir.mkdir(parents=True,exist_ok=True); complexes_dir.mkdir(parents=True,exist_ok=True)
+    receptor_text=receptor.read_text(encoding='utf-8',errors='replace').rstrip()+'\n'; outputs=[]
+    for item in models:
+        if not item['atoms']: continue
+        model=item['model']; stem=f'{dlg.stem}_model_{model}'; pose=poses_dir/f'{stem}.pdbqt'; complex_path=complexes_dir/f'{stem}_complex.pdbqt'
+        pose.write_text(f'MODEL {model}\n'+'\n'.join(item['atoms'])+'\nENDMDL\n',encoding='utf-8')
+        complex_path.write_text(receptor_text+pose.read_text(encoding='utf-8'),encoding='utf-8')
+        outputs.append({'model':model,'energy':item['energy'],'pose':pose,'complex':complex_path,'mapping_status':'traversal_order_preserved_for_corrected_mapper'})
+    ranked=rank_poses_by_energy(outputs); best=ranked[0] if ranked else None
+    return PoseExtractionResult(dlg,outputs,best['pose'] if best else None,best['model'] if best else None,float(best['energy']) if best else None,ranked,'PASS' if outputs else 'FAIL',[],{'model_count':len(outputs)})
+
+def analyze_autodock_clusters(dlg: Path, destination: Path | None = None) -> ClusterAnalysisResult:
+    rows=parse_dlg_clusters(dlg)
+    largest=max(rows,key=lambda r:int(r['cluster_size']),default=None)
+    lowest=min(rows,key=lambda r:float(r['lowest_binding_energy']),default=None)
+    if destination:
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        fields=['ligand','cluster_rank','cluster_size','cluster_percentage','lowest_binding_energy','mean_binding_energy','run_number','pose_model']
+        with destination.open('w',newline='',encoding='utf-8') as fh:
+            w=csv.DictWriter(fh,fieldnames=fields); w.writeheader(); w.writerows(rows)
+    return ClusterAnalysisResult(len(rows),rows,int(largest['cluster_rank']) if largest else None,int(largest['cluster_size']) if largest else None,int(lowest['cluster_rank']) if lowest else None,destination,[])
 
 
 def parse_dlg_clusters(dlg: Path) -> list[dict[str, object]]:
@@ -56,24 +109,8 @@ def _extract_models(dlg: Path) -> list[tuple[int, float | None, list[str]]]:
     return models
 
 
-def _write_pose_and_complexes(dlg: Path, poses_dir: Path, complexes_dir: Path, receptor: Path) -> list[dict[str, object]]:
-    poses_dir.mkdir(parents=True, exist_ok=True)
-    complexes_dir.mkdir(parents=True, exist_ok=True)
-    receptor_text = receptor.read_text(encoding="utf-8", errors="replace").rstrip() + "\n"
-    outputs = []
-    for model_number, energy, atoms in _extract_models(dlg):
-        if not atoms:
-            continue
-        stem = f"{dlg.stem}_model_{model_number}"
-        pose = poses_dir / f"{stem}.pdbqt"
-        pose.write_text(f"MODEL {model_number}\n" + "\n".join(atoms) + "\nENDMDL\n", encoding="utf-8")
-        complex_path = complexes_dir / f"{stem}_complex.pdbqt"
-        complex_path.write_text(receptor_text + pose.read_text(encoding="utf-8"), encoding="utf-8")
-        outputs.append({"model": model_number, "energy": energy, "pose": pose, "complex": complex_path})
-    return outputs
-
-
 def analyze_docking_results(dlg_dir: Path, output_dir: Path, top_n: int = 20) -> dict[str, object]:
+    """Deprecated compatibility orchestrator over canonical pose/cluster APIs."""
     output_dir.mkdir(parents=True, exist_ok=True)
     poses_dir = output_dir / "poses"
     complexes_dir = output_dir / "complexes"
@@ -83,9 +120,11 @@ def analyze_docking_results(dlg_dir: Path, output_dir: Path, top_n: int = 20) ->
     for dlg in sorted(dlg_dir.glob('*.dlg')):
         e=parse_best_energy(dlg)
         if e is not None:
-            generated = _write_pose_and_complexes(dlg, poses_dir, complexes_dir, receptor)
-            cluster_rows.extend(parse_dlg_clusters(dlg))
-            best = min((item for item in generated if item["energy"] is not None), key=lambda item: float(item["energy"]), default=None)
+            pose_result = extract_docking_poses(dlg, poses_dir, complexes_dir, receptor)
+            cluster_result = analyze_autodock_clusters(dlg)
+            generated = pose_result.poses
+            cluster_rows.extend(cluster_result.clusters)
+            best = next((x for x in generated if x.get('model') == pose_result.selected_model), None)
             row = {'ligand':dlg.stem,'energy_kcal_mol':f'{e:.3f}','dlg':str(dlg)}
             if best is not None:
                 row.update({'pose_file': str(best['pose']), 'complex_file': str(best['complex'])})
@@ -95,7 +134,9 @@ def analyze_docking_results(dlg_dir: Path, output_dir: Path, top_n: int = 20) ->
     ranking=output_dir/'ranking.csv'
     with ranking.open('w',newline='',encoding='utf-8') as fh:
         w=csv.DictWriter(fh,fieldnames=['rank','ligand','energy_kcal_mol','dlg','pose_file','complex_file'], extrasaction='ignore'); w.writeheader(); w.writerows(rows)
-    contacts=output_dir/'contacts.csv'
+    # Explicitly secondary legacy diagnostic; never primary PLIP evidence.
+    contacts=output_dir/'interaction_crosscheck'/'interactions_sidock_experimental.csv'
+    contacts.parent.mkdir(parents=True, exist_ok=True)
     all_contacts=[]
     for row in rows:
         pose = Path(row.get('pose_file', ''))

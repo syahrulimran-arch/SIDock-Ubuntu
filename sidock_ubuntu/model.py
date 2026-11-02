@@ -46,6 +46,7 @@ class Project:
             "receptor", "ligands/source", "ligands/prepared", "grid",
             "docking/dpf", "docking/dlg", "docking/work", "results",
             "analysis", "analysis/poses", "analysis/complexes", "analysis/figures", "logs",
+            "qc", "provenance", "validation", "prepared", "docking/poses", "docking/complexes",
         ):
             (self.path / rel).mkdir(parents=True, exist_ok=True)
 

@@ -28,3 +28,12 @@ integration_v02/
 # Real benchmark generated runs; retain benchmark inputs and source metadata
 benchmark_v03/run*/
 benchmark_v03/independent/
+
+# Historical development and generated study material
+development/
+real_study_001/
+production_dry_run/
+benchmark_v031_diagnosis/
+**/project_state.json
+**/report.html
+**/results.csv

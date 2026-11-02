@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sidock-ubuntu"
-version = "0.3.0"
+version = "0.4.0"
 description = "Headless AI-orchestrated AutoDock4 workflow derived from SIDock AD4 0.7.6"
 authors = [{name = "Dr Syahrul Imran"}]
 readme = "README.md"
@@ -15,6 +15,7 @@ dependencies = [
   "scipy>=1.10",
   "gemmi>=0.6",
   "matplotlib>=3.7",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 sidock-ubuntu = "sidock_ubuntu.cli:main"
+sidock = "sidock_ubuntu.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sidock_ubuntu*"]

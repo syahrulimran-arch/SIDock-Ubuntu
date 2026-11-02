@@ -11,6 +11,8 @@ from sidock_ubuntu.validation import heavy_atom_rmsd, fixed_frame_symmetry_corre
 from sidock_ubuntu.core import write_native_start_dpf
 from sidock_ubuntu.export import export_ligand_complex
 from sidock_ubuntu.model import DockingParameters
+from sidock_ubuntu.benchmark import interaction_agreement, mismatch_classification, normalized_interaction_key, ranking_status, sampling_result
+from sidock_ubuntu.production import assert_primary_interaction_source, interaction_evidence_allowed, readiness_gate
 
 
 def _mol(distance: float):
@@ -86,3 +88,24 @@ def test_failed_validation_blocks_pipeline():
     with pytest.raises(RuntimeError):
         enforce_redocking_validation({'status': 'FAIL'})
     enforce_redocking_validation({'status': 'FAIL'}, allow_failed=True)
+
+def test_benchmark_classification_and_per_residue_agreement():
+    assert sampling_result(2.0) == 'SAMPLING_PASS'
+    assert sampling_result(2.001) == 'SAMPLING_FAIL'
+    assert ranking_status(5.0, 2, True) == 'NATIVE_LIKE_TOP3'
+    assert ranking_status(5.0, 4, True) == 'NATIVE_LIKE_SAMPLED_NOT_TOP3'
+    assert ranking_status(5.0, None, False) == 'NO_NATIVE_LIKE_POSE'
+    assert interaction_agreement({('hbond', 'ALA1')}, {('hbond', 'ALA1'), ('hydrophobic', 'VAL2')})['reference_only'] == 1
+    assert normalized_interaction_key('hbond', 'A', 'ALA', '1')[0] == 'hydrogen_bond'
+    assert mismatch_classification(False, True, protonation_difference=True) == 'PROTONATION_DIFFERENCE'
+
+def test_production_interaction_boundary_and_readiness():
+    assert interaction_evidence_allowed('PLIP')
+    assert not interaction_evidence_allowed('SIDock')
+    with pytest.raises(ValueError):
+        assert_primary_interaction_source('SIDock')
+    gate = readiness_gate(benchmark_count=3, sampling_pass_count=2, chemistry_ok=True, rmsd_ok=True, mapping_ok=True, ccd_ok=True, plip_export_ok=True, protonation_ok=True, provenance_ok=True, validation_gate_ok=True, interaction_primary_ok=True)
+    assert gate['status'] == 'READY_FOR_CONTROLLED_REAL_STUDY'
+
+def test_production_rules_exist():
+    assert Path('PRODUCTION_RULES.md').exists()

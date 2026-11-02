@@ -56,7 +56,11 @@ def clean_receptor_pdb(source: Path, destination: Path, ref_resname: str, ref_ch
             continue
         if line.startswith("HETATM") and line[17:20].strip().upper() in {"HOH", "WAT", "H2O", "DOD"}:
             continue
-        same_ref = line.startswith("HETATM") and line[17:20].strip().upper() == ref_resname and line[21:22].strip() == ref_chain and line[22:27].strip() == ref_resseq
+        # Remove all crystallographic copies of the reference ligand from the
+        # receptor; the selected copy is retained separately as the native
+        # validation ligand.  Keeping sibling ligand copies would introduce
+        # artificial clashes in a biological oligomer.
+        same_ref = line.startswith("HETATM") and line[17:20].strip().upper() == ref_resname
         if same_ref:
             continue
         kept.append(line)
@@ -65,12 +69,15 @@ def clean_receptor_pdb(source: Path, destination: Path, ref_resname: str, ref_ch
     return destination
 
 
-def prepare_receptor(source: Path, destination: Path, log_path: Path) -> Path:
+def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_bad_res: bool = False) -> Path:
     exe = shutil.which("mk_prepare_receptor.py") or shutil.which("mk_prepare_receptor")
     if not exe:
         raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
     base = destination.with_suffix("")
-    code = run_command([exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"], destination.parent, log_path)
+    cmd = [exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"]
+    if allow_bad_res:
+        cmd.append("--allow_bad_res")
+    code = run_command(cmd, destination.parent, log_path)
     candidates = [base.with_suffix(".pdbqt"), Path(str(base) + ".pdbqt")]
     out = next((p for p in candidates if p.exists()), None)
     if code != 0 or out is None:
@@ -85,7 +92,9 @@ def split_and_minimize_sdf(source: Path, out_dir: Path) -> list[Path]:
     for idx, mol in enumerate(supplier, start=1):
         if mol is None:
             continue
-        name = mol.GetProp("Compound_ID") if mol.HasProp("Compound_ID") else (mol.GetProp("_Name") if mol.HasProp("_Name") else f"ligand_{idx}")
+        name = mol.GetProp("Compound_ID") if mol.HasProp("Compound_ID") else (mol.GetProp("_Name") if mol.HasProp("_Name") else "")
+        if not name.strip():
+            continue
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip()) or f"ligand_{idx}"
         mol = Chem.AddHs(mol)
         if mol.GetNumConformers() == 0 or not mol.GetConformer().Is3D():
