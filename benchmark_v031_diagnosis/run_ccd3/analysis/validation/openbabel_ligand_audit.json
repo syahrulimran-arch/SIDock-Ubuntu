@@ -1,0 +1,11 @@
+{
+  "openbabel_version": "3.1.0",
+  "input": "original_full_roundtrip.pdb ligand 1N1:A:501",
+  "atom_count": 33,
+  "bond_count": 36,
+  "connected_components": 1,
+  "formal_charge": 0,
+  "aromatic_rings": "perceived by OpenBabel; compare CCD audit",
+  "status": "PASS_BASIC_GRAPH",
+  "note": "OpenBabel successfully converts the isolated ligand to one connected molecule; detailed aromaticity equivalence should be checked against CCD before publication claims."
+}

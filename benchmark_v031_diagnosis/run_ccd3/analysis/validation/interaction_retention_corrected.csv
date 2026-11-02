@@ -1,0 +1,8 @@
+interaction_type,residue,crystal,minimum_RMSD_pose,lowest_energy_pose,retained_minimum_RMSD,retained_lowest_energy
+hydrogen_bond,aggregate,True,True,True,True,True
+hydrophobic,aggregate,True,True,True,True,True
+pi-pi,aggregate,False,False,False,False,False
+pi-cation,aggregate,False,False,False,False,False
+salt_bridge,aggregate,False,False,False,False,False
+halogen_bond,aggregate,False,False,False,False,False
+metal,aggregate,False,False,False,False,False

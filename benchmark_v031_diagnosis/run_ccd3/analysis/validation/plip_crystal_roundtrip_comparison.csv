@@ -1,0 +1,8 @@
+interaction_type,original_count,roundtrip_count,agreement
+hydrogen_bond,9,9,True
+hydrophobic,15,15,True
+pi-pi,0,0,True
+pi-cation,0,0,True
+salt_bridge,0,0,True
+halogen_bond,0,0,True
+metal,0,0,True

@@ -1,0 +1,12 @@
+field,original,roundtrip
+recognized,True,True
+ligand,1N1,1N1
+chain,A,A
+position,501,501
+hydrogen_bond,9,3
+hydrophobic,15,8
+pi-pi,0,0
+pi-cation,0,0
+salt_bridge,0,0
+halogen_bond,0,0
+metal,0,0

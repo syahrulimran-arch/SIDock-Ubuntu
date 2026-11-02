@@ -1,0 +1,22 @@
+pose,interaction_type,residue,SIDock_detected,PLIP_detected,agreement,SIDock_distance,PLIP_distance,notes
+crystal,hydrogen_bond,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,hydrophobic,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,pi-pi,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,pi-cation,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,salt_bridge,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,halogen_bond,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+crystal,metal,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,hydrogen_bond,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,hydrophobic,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,pi-pi,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,pi-cation,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,salt_bridge,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,halogen_bond,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+minimum_RMSD,metal,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,hydrogen_bond,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,hydrophobic,aggregate,not_recomputed,True,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,pi-pi,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,pi-cation,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,salt_bridge,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,halogen_bond,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending
+lowest_energy,metal,aggregate,not_recomputed,False,not_assessed,,,PLIP recognized ligand; per-residue SIDock comparison remains pending

@@ -9,6 +9,7 @@ from sidock_ubuntu.contacts import detect_contacts
 from sidock_ubuntu.pipeline import enforce_redocking_validation
 from sidock_ubuntu.validation import heavy_atom_rmsd, fixed_frame_symmetry_corrected_heavy_atom_rmsd
 from sidock_ubuntu.core import write_native_start_dpf
+from sidock_ubuntu.export import export_ligand_complex
 from sidock_ubuntu.model import DockingParameters
 
 
@@ -53,6 +54,15 @@ def test_epdb_dpf_generation(tmp_path: Path):
     ligand.write_text('ATOM      1  C   UNL     1      10.000  20.000  30.000  1.00  0.00    +0.000 C  \nTORSDOF 0\n')
     out = tmp_path / 'epdb.dpf'; write_native_start_dpf('r', ligand, ['C'], DockingParameters(), out, epdb=True)
     text = out.read_text(); assert '\nepdb\n' in text; assert 'do_local_only' not in text
+
+
+def test_plip_complex_export_preserves_hetatm_identity(tmp_path: Path):
+    receptor = tmp_path / 'r.pdb'; template = tmp_path / 't.pdb'; pose = tmp_path / 'p.pdb'; out = tmp_path / 'x.pdb'
+    receptor.write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00 20.00           C  \n')
+    template.write_text('HETATM    2  C1  1N1 A 501       1.000   1.000   1.000  1.00 20.00           C  \nEND\n')
+    pose.write_text('ATOM      9  C   UNL     1       2.000   2.000   2.000  1.00  0.00           C  \n')
+    export_ligand_complex(receptor, template, pose, out)
+    text = out.read_text(); assert 'HETATM' in text and ' 1N1 A 501' in text
 
 
 def test_dlg_cluster_parser(tmp_path: Path):
