@@ -1,0 +1,32 @@
+{
+  "root": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9",
+  "receptor_source": "/home/imran/SIDock-Ubuntu/benchmark_v03/inputs/abl1_2gqg_chainA.pdb",
+  "receptor_pdbqt": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/receptor/receptor.pdbqt",
+  "ligand_source": "/home/imran/SIDock-Ubuntu/benchmark_v03/inputs/abl1_public_ligands.sdf",
+  "prepared_ligands": [
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/DASATINIB.pdbqt",
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/IMATINIB.pdbqt",
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/NILOTINIB.pdbqt",
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/BOSUTINIB.pdbqt",
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/PONATINIB.pdbqt",
+    "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/ligands/prepared/AXITINIB.pdbqt"
+  ],
+  "grid": {
+    "center_x": 44.572500000000005,
+    "center_y": 79.404,
+    "center_z": 39.167,
+    "npts_x": 82,
+    "npts_y": 74,
+    "npts_z": 70,
+    "spacing": 0.375
+  },
+  "docking": {
+    "ga_runs": 20,
+    "ga_num_evals": 2500000,
+    "ga_pop_size": 150,
+    "ga_num_generations": 27000,
+    "rmstol": 2.0,
+    "parallel_jobs": 2,
+    "random_seed": 20250301
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "sidock_version": "0.3.0",
+  "python_version": "3.13.12",
+  "rdkit_version": "2026.09.1",
+  "meeko_version": "0.8.0",
+  "autodock_version": "AutoDock 4.2.6   ",
+  "autogrid_version": "AutoGrid 4.2.6   ",
+  "pymol_version": "unknown",
+  "operating_system": "Linux-5.4.0-216-generic-x86_64-with-glibc2.31",
+  "command_line": "sidock-ubuntu run benchmark_v03/inputs/abl1_2gqg_chainA.pdb benchmark_v03/inputs/abl1_public_ligands.sdf --project benchmark_v03/run9 --ga-runs 20 --jobs 2 --seed 20250301",
+  "random_seed": 20250301,
+  "input_sha256": {
+    "receptor": "02de9f27bac6e4718b467eeeaddbd457a9028b2a2d10bf578638a721ad4e1d33",
+    "ligands": "6eead1c0fa293d56ab98a3c8d062946b8a18d00ee64e468697ad2b408d539f14"
+  }
+}

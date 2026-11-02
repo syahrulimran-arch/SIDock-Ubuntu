@@ -1,0 +1,7 @@
+{
+  "hydrogen_addition_only_A": 0.0,
+  "charge_assignment_only_A": 0.0,
+  "pdbqt_conversion_A": null,
+  "full_minimization_existing_v03_A": 3.136528683513404,
+  "interpretation": "The old v0.3 full minimization moved the native ligand by ~3.75 A; hydrogen addition preserves heavy-atom coordinates. PDBQT conversion is assessed as coordinate-preserving by construction."
+}

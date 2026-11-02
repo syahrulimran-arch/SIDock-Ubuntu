@@ -39,10 +39,13 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, objec
     crystal_sdf = output_dir / "native_ligand_crystal.sdf"
     crystal = crystal_ligand_to_sdf(crystal_pdb, crystal_sdf)
     prepared_sdf = output_dir / "native_ligand_prepared.sdf"
-    mol = Chem.AddHs(Chem.Mol(crystal))
+    # Native validation must preserve the experimentally observed heavy-atom
+    # coordinates.  Study compounds are minimized elsewhere, but minimizing
+    # the native ligand here changes the reference conformation before AD4
+    # search and makes the validation conflate preparation with redocking.
+    mol = Chem.AddHs(Chem.Mol(crystal), addCoords=True)
     if mol.GetNumConformers() == 0 or not mol.GetConformer().Is3D():
-        mol.RemoveAllConformers(); p = AllChem.ETKDGv3(); p.randomSeed = 0xC0FFEE; AllChem.EmbedMolecule(mol, p)
-    if AllChem.MMFFHasAllMoleculeParams(mol): AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
+        raise ValueError("Native ligand has no 3D crystallographic coordinates")
     w = Chem.SDWriter(str(prepared_sdf)); w.write(mol); w.close()
     native_pdbqt = output_dir / "native_ligand.pdbqt"
     exe = shutil.which("mk_prepare_ligand.py") or shutil.which("mk_prepare_ligand")
@@ -104,7 +107,7 @@ def _write_mapping_audit(crystal: Chem.Mol, prepared: Chem.Mol, pose: Chem.Mol, 
 def _write_preparation_audit(crystal: Chem.Mol, prepared: Chem.Mol, destination: Path) -> None:
     crystal_h=Chem.AddHs(Chem.Mol(crystal)); prepared_charge=Chem.GetFormalCharge(prepared); original_charge=Chem.GetFormalCharge(crystal)
     uncertainty=[]
-    if original_charge == 0 and any(a.GetIsHeteroAtom() for a in Chem.RemoveHs(crystal).GetAtoms()):
+    if original_charge == 0 and any(a.GetSymbol() not in {'C', 'H'} for a in Chem.RemoveHs(crystal).GetAtoms()):
         uncertainty.append('Formal charge/protonation state was not experimentally assigned; review before production docking.')
     if any(a.GetIsAromatic() for a in Chem.RemoveHs(crystal).GetAtoms()):
         uncertainty.append('No tautomer enumeration was performed; tautomer-dependent docking should be reviewed.')

@@ -1,0 +1,12 @@
+{
+  "source_pdb": "2GQG",
+  "available_1N1_instances": [
+    "1N1:A:501",
+    "1N1:B:502"
+  ],
+  "selected": "1N1:A:501",
+  "input_receptor_chain": "A",
+  "input_contains_only_selected_protein_chain": true,
+  "grid_reference": "1N1:A:501",
+  "pairing_status": "PASS"
+}

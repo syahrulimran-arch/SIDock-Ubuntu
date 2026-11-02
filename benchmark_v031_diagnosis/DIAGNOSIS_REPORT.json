@@ -1,0 +1,56 @@
+{
+  "baseline_preserved": {
+    "pdb": "2GQG",
+    "ligand": "1N1/dasatinib",
+    "ga_runs": 20,
+    "rmsd_A": 6.855,
+    "best_energy_kcal_mol": -9.02,
+    "clusters": 17,
+    "source": "benchmark_v03/run9 copied unchanged to benchmark_v031_diagnosis/baseline_run9"
+  },
+  "root_cause_investigation": {
+    "preparation_coordinate_rmsd_A": 3.1365,
+    "hydrogen_addition_only_A": 0.0,
+    "charge_assignment_only_A": 0.0,
+    "pdbqt_conversion_A": 0.0,
+    "old_full_minimization": "moved crystal heavy atoms substantially before docking",
+    "chemistry": "CCD 1N1 formal charge 0; PDB-extracted and CCD heavy-atom graph audit generated",
+    "pairing": "PASS: selected 1N1:A:501 with chain A receptor; original 2GQG also contains 1N1:B:502",
+    "grid": "PASS: center delta <=0.432 A; minimum boundary clearance 8.185 A",
+    "crystal_pose": "PASS: no protein-ligand pair below 2.0 A; PDBQT charge sum -0.001"
+  },
+  "corrected_redocking": {
+    "ga_runs": 20,
+    "best_energy_kcal_mol": -12.02,
+    "lowest_energy_pose_rmsd_A": 6.6699,
+    "minimum_rmsd_all_poses_A": 6.0336,
+    "native_like_pose_count": 0,
+    "native_like_sampled": false
+  },
+  "classification": "UNRESOLVED",
+  "classification_reason": "Preparation failure was identified and corrected, but no native-like pose was sampled in the corrected 20-run search. With no <=2 A pose, ranking failure is not demonstrated; search/scoring behavior remains unresolved.",
+  "search_diagnostics": {
+    "20": {
+      "status": "completed",
+      "best_rmsd_A": 6.0336,
+      "lowest_energy_rmsd_A": 6.6699
+    },
+    "50": {
+      "status": "not_run",
+      "reason": "Deferred because corrected 20-run result did not resolve cause; no scientific parameter tuning applied"
+    },
+    "100": {
+      "status": "not_run",
+      "reason": "Deferred for same reason"
+    }
+  },
+  "reproducibility": {
+    "criterion": "compare parsed poses/energies/clusters/RMSD, not DLG bytes",
+    "status": "not yet completed for corrected runs"
+  },
+  "code_changes": [
+    "Native validation now preserves crystallographic heavy-atom coordinates and adds hydrogens without MMFF minimization.",
+    "Fixed RDKit preparation-warning audit method."
+  ],
+  "decision": "DEVELOPMENT ONLY"
+}

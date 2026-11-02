@@ -1,0 +1,9 @@
+property,ccd,crystal_pdb_inferred,sidock_prepared_existing,difference_or_note
+atom_count,59,33,77,see JSON
+heavy_atom_count,59,33,33,see JSON
+formal_charge,0,0,0,no difference
+hydrogen_count,,0,44,see JSON
+aromatic_atom_count,,0,0,see JSON
+rotatable_bonds,,8,8,see JSON
+bond_count,62,,,see JSON
+aromatic_bond_count,0,,,see JSON

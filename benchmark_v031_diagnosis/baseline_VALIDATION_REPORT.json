@@ -1,0 +1,179 @@
+{
+  "benchmark_identity": {
+    "benchmark_pdb": "2GQG",
+    "benchmark_ligand": "1N1",
+    "protein": "human ABL kinase domain",
+    "resolution_A": 2.4,
+    "structure_source": "RCSB PDB 2GQG",
+    "multi_ligand_sources": [
+      {
+        "compound_id": "DASATINIB",
+        "pdb_id": "2GQG",
+        "ligand_id": "1N1",
+        "chain": "A",
+        "resseq": "501",
+        "activity": null
+      },
+      {
+        "compound_id": "IMATINIB",
+        "pdb_id": "1IEP",
+        "ligand_id": "STI",
+        "chain": "A",
+        "resseq": "201",
+        "activity": null
+      },
+      {
+        "compound_id": "NILOTINIB",
+        "pdb_id": "3CS9",
+        "ligand_id": "NIL",
+        "chain": "A",
+        "resseq": "600",
+        "activity": null
+      },
+      {
+        "compound_id": "BOSUTINIB",
+        "pdb_id": "3UE4",
+        "ligand_id": "DB8",
+        "chain": "A",
+        "resseq": "601",
+        "activity": null
+      },
+      {
+        "compound_id": "PONATINIB",
+        "pdb_id": "3OXZ",
+        "ligand_id": "0LI",
+        "chain": "A",
+        "resseq": "1",
+        "activity": null
+      },
+      {
+        "compound_id": "AXITINIB",
+        "pdb_id": "4WA9",
+        "ligand_id": "AXI",
+        "chain": "B",
+        "resseq": "9000",
+        "activity": null
+      }
+    ],
+    "activity_policy": "No IC50 values were inserted without an assay-specific traceable source."
+  },
+  "native_redocking": {
+    "native_ligand": {
+      "resname": "1N1",
+      "chain": "A",
+      "resseq": "501"
+    },
+    "grid": {
+      "center_x": 44.572500000000005,
+      "center_y": 79.404,
+      "center_z": 39.167,
+      "npts_x": 82,
+      "npts_y": 74,
+      "npts_z": 70,
+      "spacing": 0.375
+    },
+    "autodock_parameters": {
+      "ga_runs": 20,
+      "ga_num_evals": 2500000,
+      "ga_pop_size": 150,
+      "ga_num_generations": 27000,
+      "rmstol": 2.0,
+      "parallel_jobs": 2,
+      "random_seed": 20250301
+    },
+    "best_docking_energy_kcal_mol": -9.02,
+    "rmsd_A": 6.85463297205662,
+    "chemically_mapped_atom_count": 33,
+    "excluded_atoms": [],
+    "validation_threshold_A": 2.0,
+    "status": "FAIL",
+    "files": {
+      "crystal": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_ligand_crystal.pdb",
+      "crystal_sdf": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_ligand_crystal.sdf",
+      "prepared_sdf": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_ligand_prepared.sdf",
+      "pdbqt": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_ligand.pdbqt",
+      "dlg": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_redocking.dlg",
+      "best_pdbqt": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_redocked_best.pdbqt",
+      "best_pdb": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/native_redocked_best.pdb",
+      "overlay": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/redocking_overlay.png",
+      "atom_mapping": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/atom_mapping.csv",
+      "preparation_audit": "/home/imran/SIDock-Ubuntu/benchmark_v03/run9/analysis/validation/ligand_preparation_audit.json"
+    }
+  },
+  "atom_mapping_audit": "benchmark_v03/run9/analysis/validation/atom_mapping.csv",
+  "preparation_audit": {
+    "original_formal_charge": 0,
+    "prepared_formal_charge": 0,
+    "hydrogen_count": {
+      "original": 44,
+      "prepared": 44
+    },
+    "rotatable_bonds": 8,
+    "aromatic_atom_count": 0,
+    "stereocenters": 9,
+    "bond_order_changes": false,
+    "protonation_changes": false,
+    "disconnected_fragments_removed": false,
+    "sanitization_warnings": []
+  },
+  "cluster_verification": {
+    "dlg": "benchmark_v03/run9/analysis/validation/native_redocking.dlg",
+    "ga_runs": 20,
+    "cluster_count": 17,
+    "lowest_energy_cluster": {
+      "ligand": "native_redocking",
+      "cluster_rank": 1,
+      "cluster_size": 3,
+      "cluster_percentage": 15.0,
+      "lowest_binding_energy": -9.02,
+      "mean_binding_energy": -8.02,
+      "run_number": 3,
+      "pose_model": 3
+    },
+    "most_populated_cluster": {
+      "ligand": "native_redocking",
+      "cluster_rank": 1,
+      "cluster_size": 3,
+      "cluster_percentage": 15.0,
+      "lowest_binding_energy": -9.02,
+      "mean_binding_energy": -8.02,
+      "run_number": 3,
+      "pose_model": 3
+    },
+    "manual_crosscheck_status": "PASS",
+    "manual_crosscheck_notes": "Values copied from CLUSTERING HISTOGRAM in raw DLG; no layout assumptions beyond parsed columns."
+  },
+  "interaction_cross_validation": {
+    "file": "benchmark_v03/run9/analysis/validation/contact_cross_validation.csv",
+    "PLIP_version": "3.0.1",
+    "native_crystal_counts": {
+      "hydrogen_bond": 3,
+      "hydrophobic": 8,
+      "pi-pi": 0,
+      "pi-cation": 0,
+      "salt_bridge": 0
+    },
+    "sidock_redocked_counts": {
+      "hydrophobic": 31,
+      "hydrogen_bond": 1
+    },
+    "status": "PARTIAL; native crystal cross-check complete, redocked pose independent comparison not run because validation gate failed"
+  },
+  "multi_ligand_outcome": {
+    "status": "BLOCKED_BY_FAILED_NATIVE_REDocking_GATE",
+    "ligand_count": 6,
+    "reason": "Normal ligand docking is intentionally prohibited after RMSD failure; no override used."
+  },
+  "reproducibility": {
+    "same_seed_runs": [
+      "run8",
+      "run9"
+    ],
+    "native_dlg_sha256": {
+      "run8": "351ce4b0d63fc1b3f4ca992aeb1a31591455f1053cb97f39ace8a3bdf2d5884b",
+      "run9": "ffac03fa15dc0e4a56f9c8fa0f62dab8447527114f6aa2a318d47957d2b5b9b2"
+    },
+    "status": "NOT_BYTE_IDENTICAL; compare parsed outputs before claiming reproducibility"
+  },
+  "decision": "DEVELOPMENT ONLY"
+}

@@ -1,0 +1,14 @@
+{
+  "pdb": "/home/imran/SIDock-Ubuntu/benchmark_v03/inputs/abl1_2gqg_chainA.pdb",
+  "hetero_groups": [
+    {
+      "key": "1N1:A:501",
+      "resname": "1N1",
+      "chain": "A",
+      "resseq": "501",
+      "atoms": 33
+    }
+  ],
+  "selected_reference_ligand": "1N1:A:501",
+  "reference_ligand_atoms": 33
+}
