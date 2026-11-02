@@ -1,0 +1,22 @@
+{
+  "classification": "UNRESOLVED",
+  "evidence": {
+    "rdkit_rotatable_bonds": 8,
+    "meeko_active_torsions": 10,
+    "torsdof": 10,
+    "starting_pose_rmsd_A": 0.0,
+    "corrected_20_run_minimum_rmsd_A": 6.034,
+    "corrected_20_run_lowest_energy_rmsd_A": 6.67,
+    "native_like_count": 0,
+    "crystal_pose_clash_count_below_2A": 0,
+    "pdbqt_charge_sum": -0.001
+  },
+  "interpretation": "The starting coordinates, grid, chemistry and charge audits pass. A torsion-tree count disagreement remains: RDKit reports 8 strict rotatable bonds while Meeko/AutoDock report 10 active torsions. This must be reconciled before classifying flexible-search failure or running search-depth variants. No validated v0.3.1 claim is made.",
+  "diagnostics": {
+    "crystal_start_variants": "not_run pending torsion reconciliation",
+    "rigid_control": "not_run pending torsion reconciliation",
+    "local_search": "not_run",
+    "20_50_100": "only 20 baseline available; 50/100 deferred"
+  },
+  "decision": "DEVELOPMENT ONLY"
+}

@@ -1,0 +1,11 @@
+torsion_number,pdbqt_parent_serial,pdbqt_child_serial,ccd_parent_atom,ccd_child_atom,element_pair,rdkit_bond_index,rdkit_bond_type,in_ring,amide_like,terminal,moves_heavy_atoms,moves_only_hydrogen,rdkit_strict_rotatable,rdkit_nonstrict_rotatable,meeko_active,included_in_torsdof,chemical_assessment,notes
+1,1,10,9,18,C-N,10,SING,False,False,False,2,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+2,10,12,18,19,N-C,11,SING,False,False,True,1,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+3,14,18,2,3,C-C,1,SING,False,False,False,4,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+4,18,19,3,22,C-N,16,SING,False,False,False,2,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+5,19,21,22,23,N-C,17,SING,False,False,True,1,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+6,18,29,3,27,C-O,23,DOUB,False,True,True,1,False,False,False,True,True,D,CCD confirms C3=O carbonyl; active Meeko branch is chemically inappropriate.
+7,3,31,11,30,C-N,30,SING,False,False,True,1,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+8,36,37,4,16,N-C,8,SING,False,False,False,3,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+9,37,38,16,17,C-C,9,SING,False,False,False,2,False,True,False,True,True,A,Mapped by curated crystal coordinates.
+10,38,39,17,33,C-O,35,SING,False,False,True,1,False,False,False,True,True,B,"CCD confirms terminal hydroxyethyl C-O; Meeko includes OH rotation, excluded by RDKit Strict terminal-bond definition."

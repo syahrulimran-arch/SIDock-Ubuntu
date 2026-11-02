@@ -1,0 +1,4 @@
+residue,chain,min_ligand_distance_A,side_chain_atoms,alternate_conformation,coordinate_change_after_preparation
+LEU248,A,3.38,CD1 CD2,none,not_detected
+GLY251,A,3.38,none,none,not_detected
+VAL299,A,3.38,CG1 CG2,none,not_detected

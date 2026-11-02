@@ -1,0 +1,2 @@
+torsion_id,atom1,atom2,atom3,atom4,crystal_angle_deg,rotatable,Meeko_active,notes
+, , , , , , , ,Atom-index reconciliation pending because Meeko adds hydrogens and renumbers atoms

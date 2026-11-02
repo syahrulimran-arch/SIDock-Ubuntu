@@ -1,0 +1,11 @@
+torsion_id,atom1,atom2,atom3,atom4,bond_type,rdkit_rotatable,meeko_active,terminal,amide_like,ring_bond,aromatic_conjugated,notes
+1,1,10,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+2,10,12,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+3,14,18,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+4,18,19,,,SINGLE,True,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+5,19,21,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+6,18,29,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+7,3,31,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+8,36,37,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+9,37,38,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.
+10,38,39,,,SINGLE,False,True,False,False,False,False,PDBQT BRANCH edge; exact dihedral tree audit retained in JSON.

@@ -1,0 +1,26 @@
+{
+  "rdkit_nonstrict": 8,
+  "rdkit_strict": 8,
+  "rdkit_strict_linkages": 8,
+  "meeko_active": 10,
+  "torsdof": 10,
+  "heavy_atom_mapped": 33,
+  "symmetry_ambiguities": [],
+  "explained_torsions": 10,
+  "hydrogen_only_torsions": 0,
+  "definition_difference_torsions": [
+    10
+  ],
+  "questionable_torsions": [
+    6
+  ],
+  "unresolved_torsions": [],
+  "reconciliation_pass": false,
+  "explanation": [
+    "T1-T5,T7-T9 are chemically valid heavy-atom rotatable bonds.",
+    "T6 maps to curated CCD C3=O carboxamide carbonyl and is an inappropriate active torsion.",
+    "T10 maps to terminal hydroxyethyl C21-O1; Meeko models OH rotation, while RDKit Strict excludes terminal bonds.",
+    "Thus 8 RDKit Strict + 1 terminal OH definition difference + 1 chemically inappropriate carbonyl = 10 Meeko/AutoDock torsions."
+  ],
+  "decision": "TORSION_TREE_DEFECT"
+}

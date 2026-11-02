@@ -1,0 +1,4 @@
+ga_runs,status,min_rmsd_A,median_rmsd_A,native_like_count,lowest_energy_rmsd_A,best_energy,cluster_count,largest_cluster_size
+20,completed,6.034,,0,6.670,-12.02,,,
+50,not_run,,,,,,,
+100,not_run,,,,,,,

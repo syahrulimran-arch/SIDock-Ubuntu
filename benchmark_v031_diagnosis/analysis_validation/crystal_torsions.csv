@@ -1,0 +1,11 @@
+torsion_id,atom1,atom2,atom3,atom4,crystal_angle_deg,rotatable,Meeko_active,notes
+1,9,18,,,,True,True,Mapped by curated crystal coordinates.
+2,18,19,,,,True,True,Mapped by curated crystal coordinates.
+3,2,3,,,,True,True,Mapped by curated crystal coordinates.
+4,3,22,,,,True,True,Mapped by curated crystal coordinates.
+5,22,23,,,,True,True,Mapped by curated crystal coordinates.
+6,3,27,,,,False,True,CCD confirms C3=O carbonyl; active Meeko branch is chemically inappropriate.
+7,11,30,,,,True,True,Mapped by curated crystal coordinates.
+8,4,16,,,,True,True,Mapped by curated crystal coordinates.
+9,16,17,,,,True,True,Mapped by curated crystal coordinates.
+10,17,33,,,,True,True,"CCD confirms terminal hydroxyethyl C-O; Meeko includes OH rotation, excluded by RDKit Strict terminal-bond definition."

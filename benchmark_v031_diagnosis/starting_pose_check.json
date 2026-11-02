@@ -1,0 +1,5 @@
+{
+  "crystal_to_input_pdbqt_heavy_atom_rmsd_A": 0.0,
+  "status": "PASS",
+  "notes": "Hydrogen addition and PDBQT conversion preserve heavy-atom coordinates."
+}

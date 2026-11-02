@@ -1,0 +1,3 @@
+atom_index,atom_name,element,RDKit_environment,Meeko_AD_type,partial_charge,notes
+1,C1,C,aromatic/heterocycle,C,0.127,requires curated index reconciliation
+6,N6,N,heteroaromatic,NA,-0.286,consistent with Meeko typing
