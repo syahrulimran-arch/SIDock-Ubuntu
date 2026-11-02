@@ -8,9 +8,9 @@
   },
   "authoritative_carbonyl_bond": "1N1 CCD C3=O is DOUBLE; no carbonyl BRANCH in corrected PDBQT",
   "corrected_counts": {
-    "rdkit_nonstrict": 8,
-    "rdkit_strict": 8,
-    "rdkit_strict_linkages": 8,
+    "rdkit_nonstrict": 7,
+    "rdkit_strict": 7,
+    "rdkit_strict_linkages": 7,
     "meeko_active": 8,
     "torsdof": 8,
     "questionable": 0,
