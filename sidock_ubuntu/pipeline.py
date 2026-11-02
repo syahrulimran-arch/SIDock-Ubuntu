@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .analysis import analyze_docking_results
+from .validation import prepare_native_ligand, run_native_redocking
+from .contacts import detect_contacts
 from .assay import correlate_with_ranking, extract_sdf_assay
 from .core import (box_from_reference, clean_receptor_pdb, pdbqt_atom_types, prepare_ligand,
                    prepare_receptor, resolve_executable, run_command, split_and_minimize_sdf,
@@ -16,6 +18,11 @@ from .model import DockingParameters, Project
 
 def log(msg: str) -> None:
     print(f"[SIDock Ubuntu] {msg}", flush=True)
+
+
+def enforce_redocking_validation(result: dict[str, object], allow_failed: bool = False) -> None:
+    if result.get('status') != 'PASS' and not allow_failed:
+        raise RuntimeError('Native-ligand redocking validation failed; normal ligand docking is blocked. Use --allow-failed-redocking-validation only for explicit testing.')
 
 
 def prepare_project(project_dir: Path, receptor: Path, sdf: Path, padding: float, ga_runs: int, jobs: int) -> Project:
@@ -31,7 +38,7 @@ def prepare_project(project_dir: Path, receptor: Path, sdf: Path, padding: float
     project.save(); return project
 
 
-def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0, ga_runs: int=10, parallel_jobs: int=1, top_n: int=20) -> dict[str, object]:
+def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0, ga_runs: int=10, parallel_jobs: int=1, top_n: int=20, allow_failed_redocking_validation: bool = False) -> dict[str, object]:
     receptor=receptor.resolve(); sdf=sdf.resolve()
     log('Creating project and detecting co-crystallized ligand')
     project=prepare_project(project_dir,receptor,sdf,padding,ga_runs,parallel_jobs)
@@ -42,6 +49,8 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     clean=clean_receptor_pdb(receptor,project.path/'receptor/receptor_clean.pdb',ref.resname,ref.chain,ref.resseq)
     rec=prepare_receptor(clean,project.path/'receptor/receptor.pdbqt',project.path/'logs/prepare_receptor.log')
     project.receptor_pdbqt=str(rec)
+    native_validation_dir = project.path/'analysis/validation'
+    native_prepared = prepare_native_ligand(project.path/'receptor/reference_ligand.pdb', native_validation_dir)
     log('Correcting, embedding and minimizing ligands')
     normalized=split_and_minimize_sdf(sdf,project.path/'ligands/source')
     prepared=[]
@@ -56,7 +65,7 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     log('Running AutoGrid4')
     grid=project.path/'grid'; work=project.path/'docking/work'; dlgdir=project.path/'docking/dlg'; dpfdir=project.path/'docking/dpf'
     rec_grid=grid/rec.name; shutil.copy2(rec,rec_grid)
-    ligand_types=sorted({t for p in prepared for t in pdbqt_atom_types(p)})
+    ligand_types=sorted({t for p in prepared for t in pdbqt_atom_types(p)} | set(pdbqt_atom_types(native_prepared['pdbqt'])))
     gpf=grid/f'{rec_grid.stem}.gpf'; write_gpf(rec_grid,ligand_types,project.grid,gpf)
     autogrid=resolve_executable('autogrid4','AutoGrid4')
     if run_command([autogrid,'-p',gpf.name,'-l',f'{rec_grid.stem}.glg'],grid,project.path/'logs/autogrid.log') != 0:
@@ -64,6 +73,9 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     for f in grid.glob(f'{rec_grid.stem}*.map*'): shutil.copy2(f,work/f.name)
     fld=grid/f'{rec_grid.stem}.maps.fld'
     if fld.exists(): shutil.copy2(fld,work/fld.name)
+    log('Running native-ligand redocking validation')
+    validation = run_native_redocking(native_pdb=project.path/'receptor/reference_ligand.pdb', receptor_pdbqt=rec, grid_dir=grid, work_dir=work/'native_validation', output_dir=project.path/'analysis/validation', grid=project.grid, params=project.docking, reference_info={'resname': ref.resname, 'chain': ref.chain, 'resseq': ref.resseq})
+    enforce_redocking_validation(validation, allow_failed_redocking_validation)
     autodock=resolve_executable('autodock4','AutoDock4')
     def dock(lig: Path):
         local=work/lig.name; shutil.copy2(lig,local)
@@ -77,12 +89,14 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
         futures=[pool.submit(dock,p) for p in prepared]
         for f in as_completed(futures):
             name,code=f.result(); log(f'{name}: '+('done' if code==0 else 'failed'))
+            if code != 0:
+                raise RuntimeError(f'AutoDock4 failed for {name}; see logs/autodock_{name}.log')
     analysis=analyze_docking_results(dlgdir,project.path/'analysis',top_n)
     stats=correlate_with_ranking(assay,Path(analysis['ranking']),project.path/'analysis/assay_statistics.json')
     activity_scatter(stats,project.path/'analysis/figures/docking_vs_activity.png')
     pymol_binding_figures(project.path/'analysis',project.path/'analysis/figures',limit=5)
-    evidence={'rules':['Only discuss generated values.','Do not invent residues/interactions/scores.','Docking is predictive, not experimental proof.'],
-              'grid':project.grid.__dict__,'assay_statistics':stats,'files':{k:str(v) for k,v in analysis.items() if isinstance(v,Path)}}
+    evidence={'rules':['Only discuss generated values.','Do not invent residues/interactions/scores.','Docking is predictive, not experimental proof.','Every interaction claim must be traceable to analysis/contacts.csv.','Every cluster claim must be traceable to analysis/clusters.csv.','Every validation claim must be traceable to analysis/validation/redocking_validation.json.'],
+              'grid':project.grid.__dict__,'assay_statistics':stats,'redocking_validation':validation,'files':{k:str(v) for k,v in analysis.items() if isinstance(v,Path)}}
     (project.path/'analysis/evidence.json').write_text(json.dumps(evidence,indent=2),encoding='utf-8')
     (project.path/'analysis/CODEX_DISCUSSION_PROMPT.md').write_text('# SIDock Ubuntu writing task\nRead evidence.json and generated CSV files. Write Results_and_Discussion.md. Every numerical or interaction claim must be traceable to generated outputs. Never invent data. Distinguish docking predictions from experimental evidence and state limitations.\n',encoding='utf-8')
     log('Pipeline complete')

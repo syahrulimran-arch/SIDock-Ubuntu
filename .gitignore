@@ -8,3 +8,19 @@ dist/
 *.egg-info/
 sidock_project/
 *_project/
+
+# Generated docking projects and scientific outputs
+integration_test/
+integration_v02/
+**/docking/
+**/*.map
+**/*.maps.fld
+**/*.glg
+**/*.dlg
+**/*.pdbqt
+**/*.png
+**/*.pml
+
+# Temporary/generated project analysis
+**/analysis/
+**/logs/

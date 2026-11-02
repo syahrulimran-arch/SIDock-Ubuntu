@@ -2,11 +2,11 @@
 
 Headless Ubuntu automation derived from SIDock AD4 0.7.6. It is designed for Codex to orchestrate a reproducible docking workflow while chemistry and docking remain deterministic.
 
-## Current v0.1 workflow
+## Current v0.2 workflow
 
 `protein.pdb + compounds.sdf` -> protein/ligand intake -> co-crystal ligand grid -> RDKit 3D generation/minimization -> Meeko PDBQT -> AutoGrid4 -> AutoDock4 -> docking-energy analysis -> IC50/docking statistics -> evidence bundle for Codex scientific writing.
 
-The workflow deliberately stops when a suitable bound reference ligand cannot be detected. Blind AI-selected pockets are not enabled in v0.1.
+The workflow deliberately stops when a suitable bound reference ligand cannot be detected or native-ligand redocking validation fails. Blind AI-selected pockets are not enabled. v0.2 also records native-redocking RMSD, AutoDock clusters, and geometry-derived contacts.
 
 **Current status:** this is the first Ubuntu/headless scaffold and must be integration-tested on the target Ubuntu workstation before scientific use. Full SIDock 0.7.6 pose/contact parsing and publication binding-pose figures are the next migration step.
 

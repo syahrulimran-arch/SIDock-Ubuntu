@@ -68,7 +68,7 @@ def prepare_receptor(source: Path, destination: Path, log_path: Path) -> Path:
     if not exe:
         raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
     base = destination.with_suffix("")
-    code = run_command([exe, "-i", str(source.resolve()), "-o", str(base.resolve()), "-p"], destination.parent, log_path)
+    code = run_command([exe, "--read_pdb", str(source.resolve()), "-o", str(base.resolve()), "-p"], destination.parent, log_path)
     candidates = [base.with_suffix(".pdbqt"), Path(str(base) + ".pdbqt")]
     out = next((p for p in candidates if p.exists()), None)
     if code != 0 or out is None:
@@ -86,7 +86,9 @@ def split_and_minimize_sdf(source: Path, out_dir: Path) -> list[Path]:
         name = mol.GetProp("Compound_ID") if mol.HasProp("Compound_ID") else (mol.GetProp("_Name") if mol.HasProp("_Name") else f"ligand_{idx}")
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip()) or f"ligand_{idx}"
         mol = Chem.AddHs(mol)
-        if mol.GetNumConformers() == 0:
+        if mol.GetNumConformers() == 0 or not mol.GetConformer().Is3D():
+            if mol.GetNumConformers():
+                mol.RemoveAllConformers()
             params = AllChem.ETKDGv3(); params.randomSeed = 0xC0FFEE
             if AllChem.EmbedMolecule(mol, params) != 0:
                 continue
@@ -143,7 +145,7 @@ def write_gpf(receptor: Path, ligand_types: list[str], grid: GridBox, destinatio
 
 def write_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters, destination: Path) -> None:
     lines = [
-        "autodock_parameter_version 4.2", "outlev 1", "intelec", "seed pid time",
+        "autodock_parameter_version 4.2", "outlev 1", "intelec", "set_ga", "set_psw1", "seed pid time",
         f"ligand_types {' '.join(ligand_types)}", f"fld {receptor_stem}.maps.fld",
     ]
     for t in ligand_types:
