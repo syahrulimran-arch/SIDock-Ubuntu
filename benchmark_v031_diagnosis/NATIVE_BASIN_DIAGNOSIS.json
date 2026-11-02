@@ -1,0 +1,24 @@
+{
+  "classification": "NATIVE_BASIN_UNSTABLE",
+  "local_search": {
+    "count": 20,
+    "min_final_RMSD_A": 8.33914189139677,
+    "max_final_RMSD_A": 13.461187415542643,
+    "mean_final_RMSD_A": 10.60034388388576,
+    "starting_RMSD_A": 0.0
+  },
+  "standard_flexible": {
+    "minimum_fixed_frame_RMSD_A": 8.1965,
+    "native_like_count": 0
+  },
+  "rigid_control": {
+    "minimum_fixed_frame_RMSD_A": 0.2343,
+    "native_like_count": 20
+  },
+  "interpretation": "The exact-pose local-search diagnostic, constructed with do_local_only 20, set_psw1, zero initial translation/orientation/torsion offsets, moved all final poses far from the crystal frame (minimum 8.339 A). This makes the native basin unstable under the current AutoDock scoring/local-search setup. The result is diagnostic, not validation.",
+  "search_depth_tests": "not run",
+  "crystal_initialized_lga": "not run",
+  "single_torsion_controls": "not run",
+  "cumulative_flexibility": "not run",
+  "decision": "DEVELOPMENT ONLY"
+}
