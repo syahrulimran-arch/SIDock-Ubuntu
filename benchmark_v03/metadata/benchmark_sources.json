@@ -1,0 +1,58 @@
+{
+  "benchmark_pdb": "2GQG",
+  "benchmark_ligand": "1N1",
+  "protein": "human ABL kinase domain",
+  "resolution_A": 2.4,
+  "structure_source": "RCSB PDB 2GQG",
+  "multi_ligand_sources": [
+    {
+      "compound_id": "DASATINIB",
+      "pdb_id": "2GQG",
+      "ligand_id": "1N1",
+      "chain": "A",
+      "resseq": "501",
+      "activity": null
+    },
+    {
+      "compound_id": "IMATINIB",
+      "pdb_id": "1IEP",
+      "ligand_id": "STI",
+      "chain": "A",
+      "resseq": "201",
+      "activity": null
+    },
+    {
+      "compound_id": "NILOTINIB",
+      "pdb_id": "3CS9",
+      "ligand_id": "NIL",
+      "chain": "A",
+      "resseq": "600",
+      "activity": null
+    },
+    {
+      "compound_id": "BOSUTINIB",
+      "pdb_id": "3UE4",
+      "ligand_id": "DB8",
+      "chain": "A",
+      "resseq": "601",
+      "activity": null
+    },
+    {
+      "compound_id": "PONATINIB",
+      "pdb_id": "3OXZ",
+      "ligand_id": "0LI",
+      "chain": "A",
+      "resseq": "1",
+      "activity": null
+    },
+    {
+      "compound_id": "AXITINIB",
+      "pdb_id": "4WA9",
+      "ligand_id": "AXI",
+      "chain": "B",
+      "resseq": "9000",
+      "activity": null
+    }
+  ],
+  "activity_policy": "No IC50 values were inserted without an assay-specific traceable source."
+}
