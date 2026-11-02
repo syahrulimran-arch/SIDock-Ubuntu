@@ -9,7 +9,7 @@ from .gui_service import (create_project, get_compound_detail, get_compounds, ge
 from .state import project_status, derived_project_status
 
 try:
-    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+    from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse, FileResponse
 except ImportError:  # pragma: no cover
@@ -20,7 +20,7 @@ def _workspace(value=None):
 
 def create_app(workspace=None):
     if FastAPI is None: raise RuntimeError('FastAPI is required for the v0.5 GUI')
-    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.5.0')
+    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.5.1')
     static_dir=Path(__file__).with_name('static'); static_dir.mkdir(exist_ok=True); app.mount('/static', StaticFiles(directory=str(static_dir)), name='static')
     def page(title, body):
         import html as h
@@ -143,7 +143,7 @@ def create_app(workspace=None):
         try: return resume_project(get_project(project_id))
         except RuntimeError as exc: raise HTTPException(status_code=409,detail=str(exc))
     @app.get('/projects/{project_id}/compounds',response_class=HTMLResponse)
-    def compounds(project_id, page_num:int=1, page_size:int=25, status:str='ALL', search:str='', sort:str='compound_id'):
+    def compounds(project_id, page_num:int=Query(1, alias='page', ge=1), page_size:int=25, status:str='ALL', search:str='', sort:str='compound_id'):
         data=get_compound_page(get_project(project_id),page=page_num,page_size=page_size,status=status,search=search,sort=sort); body=[f"<h1>Compounds</h1><form><label>Search <input name='search' value='{__import__('html').escape(search)}'></label><label>Status <select name='status'><option>ALL</option><option>PASS</option><option>FAIL</option><option>BLOCKED</option><option>STALE</option></select></label><input type='hidden' name='page_size' value='{data['page_size']}'><button>Filter</button></form><p>Showing {min((data['page']-1)*data['page_size']+1,data['total']) if data['total'] else 0}–{min(data['page']*data['page_size'],data['total'])} of {data['total']}</p><table><tr><th>ID</th><th>Status</th><th>Docking</th><th>Details</th></tr>"]
         for row in data['items']:
             cid=__import__('html').escape(str(row['compound_id'])); body.append(f"<tr><td>{cid}</td><td>{__import__('html').escape(row['status'])}</td><td>{__import__('html').escape(str(row.get('docking_energy') if row.get('docking_energy') is not None else 'Unavailable'))}</td><td><a href='/projects/{project_id}/compounds/{cid}'>Details</a></td></tr>")

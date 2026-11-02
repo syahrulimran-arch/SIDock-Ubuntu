@@ -177,6 +177,32 @@ def test_compound_page_filters_and_paginates_deterministically(tmp_path):
     first=get_compound_page(project,page=1,page_size=25); second=get_compound_page(project,page=2,page_size=25)
     assert first['total']==30 and len(first['items'])==25 and [x['compound_id'] for x in second['items']]==['C25','C26','C27','C28','C29']
 
+def test_compounds_browser_route_preserves_page_alias_and_empty_state(tmp_path):
+    pytest.importorskip('fastapi')
+    from fastapi.testclient import TestClient
+    from sidock_ubuntu.gui import create_app
+    workspace=tmp_path/'workspace'; project=workspace/'pending'; project.mkdir(parents=True)
+    (project/'project_state.json').write_text(json.dumps({'stages':{},'compounds':{}}))
+    client=TestClient(create_app(workspace))
+    for query in ('', '?page=1', '?page=2&page_size=25&search=test&status=ALL&sort=compound_id'):
+        response=client.get('/projects/pending/compounds'+query)
+        assert response.status_code==200
+        assert 'No compounds are available' in response.text
+
+def test_compounds_browser_route_paginates_with_page_query(tmp_path):
+    pytest.importorskip('fastapi')
+    from fastapi.testclient import TestClient
+    from sidock_ubuntu.gui import create_app
+    workspace=tmp_path/'workspace'; project=workspace/'pending'; project.mkdir(parents=True)
+    (project/'project_state.json').write_text(json.dumps({'stages':{},'compounds':{}}))
+    ensure_compounds(project,[f'C{i:02d}' for i in range(30)])
+    client=TestClient(create_app(workspace))
+    first=client.get('/projects/pending/compounds?page=1&page_size=25&search=C&status=ALL&sort=compound_id')
+    second=client.get('/projects/pending/compounds?page=2&page_size=25&search=C&status=ALL&sort=compound_id')
+    assert first.status_code==second.status_code==200
+    assert 'C00' in first.text and 'C25' not in first.text
+    assert 'C25' in second.text and 'page=2' in second.text
+
 def test_multipart_oversize_and_invalid_sdf_are_rejected_without_project(tmp_path, monkeypatch):
     pytest.importorskip('fastapi')
     from fastapi.testclient import TestClient
