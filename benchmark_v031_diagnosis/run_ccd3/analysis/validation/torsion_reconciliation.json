@@ -1,0 +1,13 @@
+{
+  "rdkit_nonstrict": 8,
+  "rdkit_strict": 8,
+  "rdkit_strict_linkages": 8,
+  "meeko_active": 8,
+  "torsdof": 8,
+  "questionable_torsions": 0,
+  "unresolved_torsions": 0,
+  "hydrogen_only_torsions": 0,
+  "terminal_hydroxyethyl_torsion": "not active in corrected PDBQT; CCD C21-O1 remains chemically valid but Meeko did not include it here",
+  "carbonyl_C3_O": "CCD DOUBLE; absent from BRANCH records",
+  "torsion_tree_status": "TORSION_TREE_VALID"
+}

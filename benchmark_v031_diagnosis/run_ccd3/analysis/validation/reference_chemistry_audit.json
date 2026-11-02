@@ -1,0 +1,17 @@
+{
+  "component_id": "1N1",
+  "formula": "\"C22 H26 Cl N7 O2 S\"",
+  "formal_charge": 0,
+  "heavy_atom_count": 33,
+  "bond_count": 36,
+  "single_bonds": 18,
+  "double_bonds": 1,
+  "triple_bonds": 0,
+  "aromatic_bonds": 17,
+  "ring_count": 4,
+  "rotatable_bonds": 7,
+  "stereochemistry": [],
+  "CCD_source": "https://files.rcsb.org/ligands/view/1N1.cif",
+  "CCD_hash": "270480222c4a374ec7c6dfe709adb9670713f2c66bdc55a73bbb1328e8eeeec3",
+  "connectivity_validation": "PASS"
+}

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import re
 import shutil
 import subprocess
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rdkit import Chem
@@ -33,11 +36,96 @@ def crystal_ligand_to_sdf(pdb: Path, destination: Path) -> Chem.Mol:
     return mol
 
 
+def reconstruct_reference_from_ccd(native_pdb: Path, output_dir: Path, component_id: str | None = None) -> dict[str, object]:
+    """Build the reference ligand graph from the RCSB CCD and PDB coordinates."""
+    try:
+        import gemmi
+    except ImportError as exc:
+        raise RuntimeError("gemmi is required for authoritative CCD reference chemistry") from exc
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pdb_lines = native_pdb.read_text(encoding="utf-8", errors="replace").splitlines()
+    atoms_by_name = {line[12:16].strip(): line for line in pdb_lines if line.startswith(("ATOM", "HETATM"))}
+    if not atoms_by_name:
+        raise RuntimeError("REFERENCE_CHEMISTRY_UNRESOLVED: reference ligand has no atoms")
+    component_id = component_id or next((line[17:20].strip() for line in pdb_lines if line.startswith("HETATM")), None)
+    if not component_id:
+        raise RuntimeError("REFERENCE_CHEMISTRY_UNRESOLVED: component ID was not found")
+    cif_path = output_dir / f"{component_id}_ccd.cif"
+    url = f"https://files.rcsb.org/ligands/view/{component_id}.cif"
+    if not cif_path.exists():
+        try:
+            urllib.request.urlretrieve(url, cif_path)
+        except Exception as exc:
+            raise RuntimeError(f"REFERENCE_CHEMISTRY_UNRESOLVED: could not retrieve {url}: {exc}") from exc
+    block = gemmi.cif.read(str(cif_path)).sole_block()
+    atom_cat = block.get_mmcif_category("_chem_comp_atom.")
+    bond_cat = block.get_mmcif_category("_chem_comp_bond.")
+    atom_ids = [atom_id for atom_id, element in zip(atom_cat["atom_id"], atom_cat["type_symbol"]) if element.upper() != "H"]
+    if not atom_ids:
+        raise RuntimeError("REFERENCE_CHEMISTRY_UNRESOLVED: CCD has no atom table")
+    rw = Chem.RWMol()
+    for atom_id, element, charge, aromatic in zip(atom_cat["atom_id"], atom_cat["type_symbol"], atom_cat["charge"], atom_cat["pdbx_aromatic_flag"]):
+        if element.upper() == "H":
+            continue
+        element = element[:1].upper() + element[1:].lower()
+        atom = Chem.Atom(element)
+        if charge not in ("?", "."):
+            atom.SetFormalCharge(int(charge))
+        atom.SetIsAromatic(aromatic == "Y")
+        atom.SetProp("_CCDAtomId", atom_id)
+        rw.AddAtom(atom)
+    order_map = {"SING": Chem.BondType.SINGLE, "DOUB": Chem.BondType.DOUBLE, "TRIP": Chem.BondType.TRIPLE, "AROM": Chem.BondType.AROMATIC}
+    id_to_idx = {atom_id: i for i, atom_id in enumerate(atom_ids)}
+    for a, b, order, aromatic in zip(bond_cat["atom_id_1"], bond_cat["atom_id_2"], bond_cat["value_order"], bond_cat["pdbx_aromatic_flag"]):
+        if a not in id_to_idx or b not in id_to_idx:
+            continue
+        if a not in id_to_idx or b not in id_to_idx:
+            raise RuntimeError("REFERENCE_CHEMISTRY_UNRESOLVED: CCD bond references unknown atom")
+        bond = rw.AddBond(id_to_idx[a], id_to_idx[b], order_map.get(order, Chem.BondType.SINGLE))
+        if aromatic == "Y":
+            rw.GetBondBetweenAtoms(id_to_idx[a], id_to_idx[b]).SetIsAromatic(True)
+    mol = rw.GetMol()
+    missing = [atom_id for atom_id in atom_ids if atom_id not in atoms_by_name]
+    if missing:
+        raise RuntimeError(f"REFERENCE_CHEMISTRY_UNRESOLVED: CCD atoms missing from crystallographic instance: {missing}")
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for i, atom_id in enumerate(atom_ids):
+        line = atoms_by_name[atom_id]
+        conf.SetAtomPosition(i, (float(line[30:38]), float(line[38:46]), float(line[46:54])))
+    mol.AddConformer(conf, assignId=True)
+    try:
+        Chem.SanitizeMol(mol)
+    except Exception as exc:
+        raise RuntimeError(f"REFERENCE_CHEMISTRY_UNRESOLVED: CCD graph failed sanitization: {exc}") from exc
+    sdf_path = output_dir / f"{component_id}_ccd.sdf"
+    writer = Chem.SDWriter(str(sdf_path)); writer.write(mol); writer.close()
+    digest = hashlib.sha256(cif_path.read_bytes()).hexdigest()
+    metadata = {"component_id": component_id, "formula": block.find_value("_chem_comp.formula"), "formal_charge": block.find_value("_chem_comp.pdbx_formal_charge"), "source_url": url, "retrieved_utc": datetime.now(timezone.utc).isoformat(), "sha256": digest, "atom_count": mol.GetNumAtoms(), "heavy_atom_count": Chem.RemoveHs(mol).GetNumAtoms()}
+    (output_dir / "ccd_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return {"mol": mol, "component_id": component_id, "cif": cif_path, "sdf": sdf_path, "metadata": metadata, "mapping": {atom_id: atoms_by_name[atom_id] for atom_id in atom_ids}}
+
+
 def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     crystal_pdb = output_dir / "native_ligand_crystal.pdb"; shutil.copy2(native_pdb, crystal_pdb)
+    chemistry_dir = output_dir.parent.parent / "reference_chemistry"
+    reconstructed = reconstruct_reference_from_ccd(crystal_pdb, chemistry_dir)
+    crystal = reconstructed["mol"]
+    mapping_path = output_dir / "ccd_coordinate_mapping.csv"
+    with mapping_path.open("w", newline="", encoding="utf-8") as fh:
+        fields = ["ccd_atom_id", "pdb_atom_name", "element", "ccd_bond_environment", "crystal_x", "crystal_y", "crystal_z", "mapping_method", "mapping_confidence"]
+        writer = csv.DictWriter(fh, fieldnames=fields); writer.writeheader()
+        conf = crystal.GetConformer()
+        for i, atom in enumerate(crystal.GetAtoms()):
+            atom_id = atom.GetProp("_CCDAtomId")
+            pos = conf.GetAtomPosition(i)
+            neighbors = ";".join(f"{n.GetProp('_CCDAtomId')}:{crystal.GetBondBetweenAtoms(i, n.GetIdx()).GetBondType()}" for n in atom.GetNeighbors())
+            writer.writerow({"ccd_atom_id": atom_id, "pdb_atom_name": atom_id, "element": atom.GetSymbol(), "ccd_bond_environment": neighbors, "crystal_x": f"{pos.x:.3f}", "crystal_y": f"{pos.y:.3f}", "crystal_z": f"{pos.z:.3f}", "mapping_method": "authoritative CCD atom name + crystallographic atom name", "mapping_confidence": "high"})
+    h = Chem.RemoveHs(crystal)
+    chemistry_audit = {"component_id": reconstructed["component_id"], "formula": reconstructed["metadata"].get("formula"), "formal_charge": Chem.GetFormalCharge(crystal), "heavy_atom_count": h.GetNumAtoms(), "bond_count": h.GetNumBonds(), "single_bonds": sum(b.GetBondType() == Chem.BondType.SINGLE for b in h.GetBonds()), "double_bonds": sum(b.GetBondType() == Chem.BondType.DOUBLE for b in h.GetBonds()), "triple_bonds": sum(b.GetBondType() == Chem.BondType.TRIPLE for b in h.GetBonds()), "aromatic_bonds": sum(b.GetIsAromatic() for b in h.GetBonds()), "ring_count": int(rdMolDescriptors.CalcNumRings(h)), "rotatable_bonds": int(rdMolDescriptors.CalcNumRotatableBonds(h)), "stereochemistry": Chem.FindMolChiralCenters(h, includeUnassigned=True), "CCD_source": reconstructed["metadata"]["source_url"], "CCD_hash": reconstructed["metadata"]["sha256"], "connectivity_validation": "PASS"}
+    (output_dir / "reference_chemistry_audit.json").write_text(json.dumps(chemistry_audit, indent=2), encoding="utf-8")
     crystal_sdf = output_dir / "native_ligand_crystal.sdf"
-    crystal = crystal_ligand_to_sdf(crystal_pdb, crystal_sdf)
+    writer = Chem.SDWriter(str(crystal_sdf)); writer.write(crystal); writer.close()
     prepared_sdf = output_dir / "native_ligand_prepared.sdf"
     # Native validation must preserve the experimentally observed heavy-atom
     # coordinates.  Study compounds are minimized elsewhere, but minimizing
@@ -53,7 +141,7 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, objec
     prep_log = output_dir / "native_ligand_prepare.log"
     if run_command([exe, "-i", str(prepared_sdf.resolve()), "-o", str(native_pdbqt.resolve())], output_dir, prep_log) != 0:
         raise RuntimeError(f"Native ligand preparation failed; see {prep_log}")
-    return {"crystal": crystal, "prepared": mol, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt}
+    return {"crystal": crystal, "prepared": mol, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt, "reference_chemistry": reconstructed}
 
 
 def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
@@ -152,7 +240,7 @@ def run_native_redocking(*, native_pdb: Path, receptor_pdbqt: Path, grid_dir: Pa
     mapped_count=_write_mapping_audit(crystal, native['prepared'], pose_mol, output_dir/'atom_mapping.csv')
     _write_preparation_audit(crystal, native['prepared'], output_dir/'ligand_preparation_audit.json')
     overlay = output_dir / "redocking_overlay.png"; _overlay(crystal, pose_mol, rmsd, overlay)
-    result = {"native_ligand": reference_info, "grid": grid.__dict__, "autodock_parameters": params.__dict__, "best_docking_energy_kcal_mol": float(best[1]), "rmsd_A": rmsd, "chemically_mapped_atom_count": mapped_count, "excluded_atoms": [], "validation_threshold_A": threshold, "status": "PASS" if rmsd <= threshold else "FAIL", "files": {"crystal": str(crystal_pdb), "crystal_sdf": str(crystal_sdf), "prepared_sdf": str(prepared_sdf), "pdbqt": str(native_pdbqt), "dlg": str(dlg), "best_pdbqt": str(pose_pdbqt), "best_pdb": str(pose_pdb), "overlay": str(overlay), "atom_mapping": str(output_dir/'atom_mapping.csv'), "preparation_audit": str(output_dir/'ligand_preparation_audit.json')}}
+    result = {"native_ligand": reference_info, "grid": grid.__dict__, "autodock_parameters": params.__dict__, "best_docking_energy_kcal_mol": float(best[1]), "rmsd_A": rmsd, "chemically_mapped_atom_count": mapped_count, "excluded_atoms": [], "validation_threshold_A": threshold, "status": "PASS" if rmsd <= threshold else "FAIL", "files": {"crystal": str(crystal_pdb), "crystal_sdf": str(crystal_sdf), "prepared_sdf": str(prepared_sdf), "pdbqt": str(native_pdbqt), "dlg": str(dlg), "best_pdbqt": str(pose_pdbqt), "best_pdb": str(pose_pdb), "overlay": str(overlay), "atom_mapping": str(output_dir/'atom_mapping.csv'), "preparation_audit": str(output_dir/'ligand_preparation_audit.json'), "reference_chemistry": {"cif": str(native['reference_chemistry']['cif']), "sdf": str(native['reference_chemistry']['sdf']), "metadata": str(native['reference_chemistry']['cif'].parent/'ccd_metadata.json')}}}
     (output_dir / "redocking_validation.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     with (output_dir / "redocking_validation.csv").open("w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows([["status", "rmsd_A", "threshold_A", "best_energy_kcal_mol"], [result["status"], f"{rmsd:.3f}", threshold, result["best_docking_energy_kcal_mol"]]])

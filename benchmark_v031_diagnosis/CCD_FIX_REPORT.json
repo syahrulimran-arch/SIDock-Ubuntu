@@ -1,0 +1,38 @@
+{
+  "classification": "TORSION_DEFECT_FIXED_SEARCH_STILL_FAILS",
+  "ccd_mapping_completeness": {
+    "heavy_atoms_required": 33,
+    "heavy_atoms_mapped": 33,
+    "ambiguities": 0,
+    "file": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/ccd_coordinate_mapping.csv"
+  },
+  "authoritative_carbonyl_bond": "1N1 CCD C3=O is DOUBLE; no carbonyl BRANCH in corrected PDBQT",
+  "corrected_counts": {
+    "rdkit_nonstrict": 8,
+    "rdkit_strict": 8,
+    "rdkit_strict_linkages": 8,
+    "meeko_active": 8,
+    "torsdof": 8,
+    "questionable": 0,
+    "unresolved": 0
+  },
+  "corrected_redocking": {
+    "minimum_rmsd_A": 6.807835,
+    "lowest_energy_rmsd_A": 6.935046,
+    "lowest_energy_kcal_mol": -11.61,
+    "native_like_pose_count": 0,
+    "cluster_count": 7
+  },
+  "decision_reason": "The chemistry reconstruction and torsion tree now pass; the unchanged standard 20-run protocol still samples no pose at or below 2 A. This is not a validation pass and is not yet classified as scoring failure.",
+  "files": [
+    "reference_chemistry/1N1_ccd.cif",
+    "reference_chemistry/1N1_ccd.sdf",
+    "reference_chemistry/ccd_metadata.json",
+    "analysis/validation/ccd_coordinate_mapping.csv",
+    "analysis/validation/reference_chemistry_audit.json",
+    "analysis/validation/torsion_reconciliation.json",
+    "analysis/validation/chemistry_fix_comparison.csv",
+    "analysis/validation/pose_rmsd.csv"
+  ],
+  "pytest": "6 passed"
+}

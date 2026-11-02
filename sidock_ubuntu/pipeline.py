@@ -98,6 +98,12 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     if fld.exists(): shutil.copy2(fld,work/fld.name)
     log('Running native-ligand redocking validation')
     validation = run_native_redocking(native_pdb=project.path/'receptor/reference_ligand.pdb', receptor_pdbqt=rec, grid_dir=grid, work_dir=work/'native_validation', output_dir=project.path/'analysis/validation', grid=project.grid, params=project.docking, reference_info={'resname': ref.resname, 'chain': ref.chain, 'resseq': ref.resseq})
+    provenance_path = project.path/'provenance.json'
+    provenance = json.loads(provenance_path.read_text(encoding='utf-8')) if provenance_path.exists() else {}
+    chemistry = validation.get('files', {}).get('reference_chemistry')
+    if chemistry:
+        provenance['reference_chemistry'] = chemistry
+        provenance_path.write_text(json.dumps(provenance, indent=2), encoding='utf-8')
     enforce_redocking_validation(validation, allow_failed_redocking_validation)
     autodock=resolve_executable('autodock4','AutoDock4')
     def dock(lig: Path):

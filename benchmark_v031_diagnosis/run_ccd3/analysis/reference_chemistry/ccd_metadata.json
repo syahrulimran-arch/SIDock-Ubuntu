@@ -1,0 +1,10 @@
+{
+  "component_id": "1N1",
+  "formula": "\"C22 H26 Cl N7 O2 S\"",
+  "formal_charge": "0",
+  "source_url": "https://files.rcsb.org/ligands/view/1N1.cif",
+  "retrieved_utc": "2026-11-02T04:40:42.249832+00:00",
+  "sha256": "270480222c4a374ec7c6dfe709adb9670713f2c66bdc55a73bbb1328e8eeeec3",
+  "atom_count": 33,
+  "heavy_atom_count": 33
+}

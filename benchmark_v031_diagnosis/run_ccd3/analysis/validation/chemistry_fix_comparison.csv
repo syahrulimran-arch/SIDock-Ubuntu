@@ -1,0 +1,9 @@
+metric,v0.3.1,corrected
+C=O bond order,SINGLE (inferred PDB graph),DOUBLE (CCD)
+Meeko torsions,10,8
+TORSDOF,10,8
+minimum RMSD,6.033559,6.807835
+lowest-energy RMSD,6.669919,6.935046
+best energy,-12.02,-11.61
+native-like poses,0,0
+cluster count,17,7
