@@ -17,5 +17,14 @@
       "max_fixed_frame_RMSD_A": 0.24648842864228987,
       "native_like_count": 20
     }
+  },
+  "rigid_dpf": {
+    "tran0": "random",
+    "quaternion0": "random",
+    "dihe0": "random",
+    "move": "native_rigid.pdbqt",
+    "about": "44.471 79.776 39.435",
+    "seed": "20250301 20250302",
+    "ga_run": 20
   }
 }
