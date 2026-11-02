@@ -1,0 +1,42 @@
+{
+  "minimum_RMSD_A": 1.4846073861156341,
+  "maximum_RMSD_A": 14.276077034145215,
+  "mean_RMSD_A": 5.489878608777968,
+  "median_RMSD_A": [
+    5.176180377752528,
+    5.186782183998323
+  ],
+  "lowest_energy_pose": {
+    "run": 1,
+    "model": 1,
+    "cluster_rank": 1,
+    "binding_energy": -11.61,
+    "mapped_heavy_atoms": 33,
+    "fixed_frame_RMSD_A": 5.369525067875693,
+    "native_like": false,
+    "pose_pdb": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/reprocessed_standard/poses/native_redocking_model_1.pdb",
+    "complex_pdb": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/reprocessed_standard/complexes/model_1_complex.pdb"
+  },
+  "native_like_count": 2,
+  "cluster_count": 7,
+  "best_energy_cluster": {
+    "ligand": "native_redocking",
+    "cluster_rank": 1,
+    "cluster_size": 11,
+    "cluster_percentage": 55.0,
+    "lowest_binding_energy": -11.61,
+    "mean_binding_energy": -10.68,
+    "run_number": 1,
+    "pose_model": 1
+  },
+  "most_populated_cluster": {
+    "ligand": "native_redocking",
+    "cluster_rank": 1,
+    "cluster_size": 11,
+    "cluster_percentage": 55.0,
+    "lowest_binding_energy": -11.61,
+    "mean_binding_energy": -10.68,
+    "run_number": 1,
+    "pose_model": 1
+  }
+}

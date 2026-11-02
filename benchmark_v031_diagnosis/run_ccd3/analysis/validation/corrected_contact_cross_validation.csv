@@ -1,0 +1,6 @@
+pose,interaction_type,SIDock_detected,PLIP_detected,agreement,notes
+corrected_best_standard,hydrogen_bond,True,False,False,SIDock count 103; PLIP count 0
+corrected_best_standard,hydrophobic,True,False,False,SIDock count 728; PLIP count 0
+corrected_best_standard,pi-pi,False,False,True,SIDock count 0; PLIP count 0
+corrected_best_standard,pi-cation,False,False,True,SIDock count 0; PLIP count 0
+corrected_best_standard,salt_bridge,False,False,True,SIDock count 0; PLIP count 0

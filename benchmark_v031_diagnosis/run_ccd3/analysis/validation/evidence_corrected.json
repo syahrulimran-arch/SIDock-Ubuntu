@@ -1,0 +1,35 @@
+{
+  "provenance": {
+    "pose_extraction_mapping_version": "PDBQT traversal order -> coordinate-validated CCD mapping v1",
+    "mapping_method": "input PDBQT traversal identity, then CCD coordinate validation",
+    "raw_DLG_hash": "d2467c931863dbd2ea72ee649668706e1f0b5006c66eb02a8d67bb8eaf90297f",
+    "CCD_hash": "see analysis/reference_chemistry/ccd_metadata.json",
+    "RMSD_method": "fixed-frame symmetry-corrected heavy-atom RMSD"
+  },
+  "corrected_artifacts": [
+    "standard_redocking_corrected.csv",
+    "contacts_corrected.csv",
+    "corrected_contact_cross_validation.csv",
+    "standard_redocking_corrected_summary.json"
+  ],
+  "superseded_artifacts": [
+    {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/pose_rmsd.csv",
+      "reason": "used traversal coordinates assigned directly to CCD atom order",
+      "replacement": "standard_redocking_corrected.csv",
+      "corrected_value": "see corrected CSV"
+    },
+    {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/redocking_validation.json",
+      "reason": "RMSD derived from defective pose mapping",
+      "replacement": "standard_redocking_corrected_summary.json",
+      "corrected_value": "minimum 1.4846 A; lowest-energy 5.3695 A"
+    },
+    {
+      "path": "benchmark_v031_diagnosis/NATIVE_BASIN_DIAGNOSIS.json",
+      "reason": "local-search RMSD values used defective atom assignment",
+      "replacement": "COORDINATE_AUDIT_REPORT.json",
+      "corrected_value": "pose extraction defect"
+    }
+  ]
+}

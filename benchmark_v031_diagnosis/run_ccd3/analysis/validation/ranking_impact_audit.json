@@ -1,0 +1,5 @@
+{
+  "ranking_file": "analysis/ranking.csv",
+  "status": "ENERGY_ONLY_UNAFFECTED",
+  "notes": "Ranking is generated from AutoDock reported energy; pose-derived RMSD is not a ranking field. Corrected pose files are separate."
+}

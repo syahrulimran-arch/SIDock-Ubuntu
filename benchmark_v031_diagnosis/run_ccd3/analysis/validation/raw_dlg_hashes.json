@@ -1,0 +1,18 @@
+{
+  "original_standard_20run": {
+    "path": "benchmark_v03/run9/analysis/validation/native_redocking.dlg",
+    "sha256": "ffac03fa15dc0e4a56f9c8fa0f62dab8447527114f6aa2a318d47957d2b5b9b2"
+  },
+  "corrected_ccd_standard_20run": {
+    "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/native_redocking.dlg",
+    "sha256": "d2467c931863dbd2ea72ee649668706e1f0b5006c66eb02a8d67bb8eaf90297f"
+  },
+  "rigid_control": {
+    "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/rigid_control/rigid_control.dlg",
+    "sha256": "67280cd411a14cb86770b32250e722500beac9fe6dfe4641293d8b0cd7eebec2"
+  },
+  "local_search": {
+    "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/local_search_corrected.dlg",
+    "sha256": "c722c042a35099d54c1ed37831509c334514c8be9eeb0fcd8d5e33c09334124f"
+  }
+}

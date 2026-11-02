@@ -1,0 +1,109 @@
+{
+  "classification": "STANDARD_REDOCKING_PASS",
+  "corrected_unbiased_20run": {
+    "minimum_RMSD_A": 1.4846073861156341,
+    "maximum_RMSD_A": 14.276077034145215,
+    "mean_RMSD_A": 5.489878608777968,
+    "median_RMSD_A": [
+      5.176180377752528,
+      5.186782183998323
+    ],
+    "lowest_energy_pose": {
+      "run": 1,
+      "model": 1,
+      "cluster_rank": 1,
+      "binding_energy": -11.61,
+      "mapped_heavy_atoms": 33,
+      "fixed_frame_RMSD_A": 5.369525067875693,
+      "native_like": false,
+      "pose_pdb": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/reprocessed_standard/poses/native_redocking_model_1.pdb",
+      "complex_pdb": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/reprocessed_standard/complexes/model_1_complex.pdb"
+    },
+    "native_like_count": 2,
+    "cluster_count": 7,
+    "best_energy_cluster": {
+      "ligand": "native_redocking",
+      "cluster_rank": 1,
+      "cluster_size": 11,
+      "cluster_percentage": 55.0,
+      "lowest_binding_energy": -11.61,
+      "mean_binding_energy": -10.68,
+      "run_number": 1,
+      "pose_model": 1
+    },
+    "most_populated_cluster": {
+      "ligand": "native_redocking",
+      "cluster_rank": 1,
+      "cluster_size": 11,
+      "cluster_percentage": 55.0,
+      "lowest_binding_energy": -11.61,
+      "mean_binding_energy": -10.68,
+      "run_number": 1,
+      "pose_model": 1
+    }
+  },
+  "autodock_vs_sidock": "AutoDock per-model RMSD unavailable; cluster representative RMSD outputs are not treated as equivalent.",
+  "corrected_contacts": {
+    "file": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/contacts_corrected.csv",
+    "count": 831
+  },
+  "plip": {
+    "hydrogen_bond": 0,
+    "hydrophobic": 0,
+    "pi-pi": 0,
+    "pi-cation": 0,
+    "salt_bridge": 0
+  },
+  "contact_cross_validation": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/corrected_contact_cross_validation.csv",
+  "historical_artifacts": {
+    "invalidated_artifacts": [
+      {
+        "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/pose_rmsd.csv",
+        "reason": "used traversal coordinates assigned directly to CCD atom order",
+        "replacement": "standard_redocking_corrected.csv",
+        "corrected_value": "see corrected CSV"
+      },
+      {
+        "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/redocking_validation.json",
+        "reason": "RMSD derived from defective pose mapping",
+        "replacement": "standard_redocking_corrected_summary.json",
+        "corrected_value": "minimum 1.4846 A; lowest-energy 5.3695 A"
+      },
+      {
+        "path": "benchmark_v031_diagnosis/NATIVE_BASIN_DIAGNOSIS.json",
+        "reason": "local-search RMSD values used defective atom assignment",
+        "replacement": "COORDINATE_AUDIT_REPORT.json",
+        "corrected_value": "pose extraction defect"
+      }
+    ],
+    "unaffected_artifacts": [
+      "raw DLG files",
+      "cluster energies/populations",
+      "CCD chemistry cache",
+      "grid/receptor audits"
+    ]
+  },
+  "regenerated_figures": [
+    "redocking_overlay_corrected.png"
+  ],
+  "raw_dlg_hashes": {
+    "original_standard_20run": {
+      "path": "benchmark_v03/run9/analysis/validation/native_redocking.dlg",
+      "sha256": "ffac03fa15dc0e4a56f9c8fa0f62dab8447527114f6aa2a318d47957d2b5b9b2"
+    },
+    "corrected_ccd_standard_20run": {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/native_redocking.dlg",
+      "sha256": "d2467c931863dbd2ea72ee649668706e1f0b5006c66eb02a8d67bb8eaf90297f"
+    },
+    "rigid_control": {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/rigid_control/rigid_control.dlg",
+      "sha256": "67280cd411a14cb86770b32250e722500beac9fe6dfe4641293d8b0cd7eebec2"
+    },
+    "local_search": {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/local_search_corrected.dlg",
+      "sha256": "c722c042a35099d54c1ed37831509c334514c8be9eeb0fcd8d5e33c09334124f"
+    }
+  },
+  "rmsd_method": "fixed-frame symmetry-corrected heavy-atom RMSD after PDBQT traversal-to-CCD mapping",
+  "decision": "DEVELOPMENT ONLY"
+}

@@ -1,0 +1,28 @@
+{
+  "invalidated_artifacts": [
+    {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/pose_rmsd.csv",
+      "reason": "used traversal coordinates assigned directly to CCD atom order",
+      "replacement": "standard_redocking_corrected.csv",
+      "corrected_value": "see corrected CSV"
+    },
+    {
+      "path": "benchmark_v031_diagnosis/run_ccd3/analysis/validation/redocking_validation.json",
+      "reason": "RMSD derived from defective pose mapping",
+      "replacement": "standard_redocking_corrected_summary.json",
+      "corrected_value": "minimum 1.4846 A; lowest-energy 5.3695 A"
+    },
+    {
+      "path": "benchmark_v031_diagnosis/NATIVE_BASIN_DIAGNOSIS.json",
+      "reason": "local-search RMSD values used defective atom assignment",
+      "replacement": "COORDINATE_AUDIT_REPORT.json",
+      "corrected_value": "pose extraction defect"
+    }
+  ],
+  "unaffected_artifacts": [
+    "raw DLG files",
+    "cluster energies/populations",
+    "CCD chemistry cache",
+    "grid/receptor audits"
+  ]
+}

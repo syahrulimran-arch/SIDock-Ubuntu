@@ -1,0 +1,21 @@
+run,model,SIDock_corrected_RMSD_A,AutoDock_reported_RMSD_A,absolute_difference,notes
+1,1,5.369525067875693,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+2,2,1.8542378896773613,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+3,3,3.216141048278861,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+4,4,5.2933083027421315,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+5,5,3.078418656427748,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+6,6,11.627455236324382,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+7,7,5.2992340327007,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+8,8,1.4846073861156341,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+9,9,4.616240451827754,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+10,10,5.186782183998323,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+11,11,3.531412950115353,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+12,12,5.232983600551062,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+13,13,3.138189702051265,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+14,14,5.380717950856249,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+15,15,5.056821342593497,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+16,16,5.113395337619406,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+17,17,10.542662321168303,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+18,18,5.323181302737883,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+19,19,14.276077034145215,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
+20,20,5.176180377752528,,,AutoDock per-model RMSD not emitted; cluster-table RMSD is not equivalent
