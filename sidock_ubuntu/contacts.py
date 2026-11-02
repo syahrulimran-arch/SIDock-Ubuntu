@@ -36,7 +36,10 @@ def detect_contacts(receptor: Path, ligand: Path, ligand_name: str, destination:
             kind=None
             if p["element"] in {"C","S"} and l["element"] in {"C","S"} and d <= 4.0: kind="hydrophobic"
             elif p["element"] in {"N","O","S"} and l["element"] in {"N","O","S"} and d <= 3.5 and ("H" in str(pt) or "O" in str(pt) or "N" in str(pt)) : kind="hydrogen_bond"
-            elif p["charge"] * l["charge"] < 0 and d <= 4.0: kind="salt_bridge"
+            # PDBQT partial charges are not formal charges.  Only call a salt
+            # bridge when explicit charge signs are present, avoiding the old
+            # residue-proximity false positives on neutral atoms.
+            elif abs(p["charge"]) >= 0.5 and abs(l["charge"]) >= 0.5 and p["charge"] * l["charge"] < 0 and d <= 4.0: kind="salt_bridge"
             if kind:
                 key=(p["atom"],l["atom"],kind)
                 if key not in seen:

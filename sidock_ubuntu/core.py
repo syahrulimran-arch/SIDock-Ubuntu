@@ -52,6 +52,8 @@ def box_from_reference(reference_pdb: Path, padding: float = 8.0, spacing: float
 def clean_receptor_pdb(source: Path, destination: Path, ref_resname: str, ref_chain: str, ref_resseq: str) -> Path:
     kept = []
     for line in source.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("CONECT"):
+            continue
         if line.startswith("HETATM") and line[17:20].strip().upper() in {"HOH", "WAT", "H2O", "DOD"}:
             continue
         same_ref = line.startswith("HETATM") and line[17:20].strip().upper() == ref_resname and line[21:22].strip() == ref_chain and line[22:27].strip() == ref_resseq
@@ -68,7 +70,7 @@ def prepare_receptor(source: Path, destination: Path, log_path: Path) -> Path:
     if not exe:
         raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
     base = destination.with_suffix("")
-    code = run_command([exe, "--read_pdb", str(source.resolve()), "-o", str(base.resolve()), "-p"], destination.parent, log_path)
+    code = run_command([exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"], destination.parent, log_path)
     candidates = [base.with_suffix(".pdbqt"), Path(str(base) + ".pdbqt")]
     out = next((p for p in candidates if p.exists()), None)
     if code != 0 or out is None:
@@ -124,6 +126,22 @@ def pdbqt_atom_types(path: Path) -> list[str]:
     return sorted(types)
 
 
+def pdbqt_center(path: Path) -> tuple[float, float, float]:
+    xyz=[]
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith(("ATOM", "HETATM")):
+            xyz.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+    if not xyz: raise ValueError(f"No coordinates found in {path}")
+    return tuple(sum(v[i] for v in xyz) / len(xyz) for i in range(3))
+
+
+def pdbqt_torsdof(path: Path) -> int:
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("TORSDOF"):
+            return int(line.split()[-1])
+    return 0
+
+
 def write_gpf(receptor: Path, ligand_types: list[str], grid: GridBox, destination: Path) -> None:
     rec_types = " ".join(pdbqt_atom_types(receptor))
     lig_types = " ".join(ligand_types)
@@ -144,16 +162,19 @@ def write_gpf(receptor: Path, ligand_types: list[str], grid: GridBox, destinatio
 
 
 def write_dpf(receptor_stem: str, ligand: Path, ligand_types: list[str], params: DockingParameters, destination: Path) -> None:
+    center=pdbqt_center(ligand)
     lines = [
-        "autodock_parameter_version 4.2", "outlev 1", "intelec", "set_ga", "set_psw1", "seed pid time",
+        "autodock_parameter_version 4.2", "outlev 1", "intelec", f"seed {params.random_seed} {params.random_seed + 1}",
         f"ligand_types {' '.join(ligand_types)}", f"fld {receptor_stem}.maps.fld",
     ]
     for t in ligand_types:
         lines.append(f"map {receptor_stem}.{t}.map")
     lines += [f"elecmap {receptor_stem}.e.map", f"desolvmap {receptor_stem}.d.map", f"move {ligand.name}",
-              "about 0.0 0.0 0.0", "tran0 random", "quaternion0 random", "dihe0 random", "torsdof 0",
+              "about %.3f %.3f %.3f" % center, "tran0 random", "quaternion0 random", "dihe0 random", "torsdof %d" % pdbqt_torsdof(ligand),
               "rmstol %.2f" % params.rmstol, "ga_pop_size %d" % params.ga_pop_size,
               "ga_num_evals %d" % params.ga_num_evals, "ga_num_generations %d" % params.ga_num_generations,
+              "ga_elitism 1", "ga_mutation_rate 0.02", "ga_crossover_rate 0.8", "ga_window_size 10", "ga_cauchy_alpha 0.0", "ga_cauchy_beta 1.0", "set_ga",
+              "sw_max_its 300", "sw_max_succ 4", "sw_max_fail 4", "sw_rho 1.0", "sw_lb_rho 0.01", "ls_search_freq 0.26", "set_psw1",
               "ga_run %d" % params.ga_runs, "analysis"]
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

@@ -15,6 +15,7 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument('--ga-runs',type=int,default=10)
     r.add_argument('--jobs',type=int,default=1)
     r.add_argument('--top-n',type=int,default=20)
+    r.add_argument('--seed',type=int,default=20250301)
     r.add_argument('--allow-failed-redocking-validation', action='store_true', help='Developer/testing override; continue after failed native redocking validation')
     return p
 
@@ -22,7 +23,7 @@ def parser() -> argparse.ArgumentParser:
 def main() -> None:
     args=parser().parse_args()
     if args.command=='run':
-        run_all(args.project,args.receptor,args.ligands,padding=args.padding,ga_runs=args.ga_runs,parallel_jobs=args.jobs,top_n=args.top_n,allow_failed_redocking_validation=args.allow_failed_redocking_validation)
+        run_all(args.project,args.receptor,args.ligands,padding=args.padding,ga_runs=args.ga_runs,parallel_jobs=args.jobs,top_n=args.top_n,allow_failed_redocking_validation=args.allow_failed_redocking_validation,seed=args.seed)
 
 
 if __name__=='__main__':

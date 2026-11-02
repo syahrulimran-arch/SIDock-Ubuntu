@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import csv, json, shutil
+import csv, hashlib, json, os, platform, shutil, subprocess, sys
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -38,10 +39,32 @@ def prepare_project(project_dir: Path, receptor: Path, sdf: Path, padding: float
     project.save(); return project
 
 
-def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0, ga_runs: int=10, parallel_jobs: int=1, top_n: int=20, allow_failed_redocking_validation: bool = False) -> dict[str, object]:
+def _sha256(path: Path) -> str:
+    digest=hashlib.sha256()
+    with path.open('rb') as fh:
+        for block in iter(lambda: fh.read(1024*1024), b''): digest.update(block)
+    return digest.hexdigest()
+
+
+def _version(executable: str | None, flag: str='--version') -> str:
+    if not executable: return 'not found'
+    try: return subprocess.run([executable, flag], capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
+    except Exception: return 'unknown'
+
+
+def _write_provenance(project: Project, receptor: Path, sdf: Path, seed: int) -> dict[str, object]:
+    """Write provenance early so failed validation runs remain auditable."""
+    provenance={'sidock_version':'0.3.0','python_version':platform.python_version(),'rdkit_version':__import__('rdkit').__version__,'meeko_version':getattr(__import__('meeko'),'__version__','unknown'),'autodock_version':_version(resolve_executable('autodock4','AutoDock4')),'autogrid_version':_version(resolve_executable('autogrid4','AutoGrid4')),'pymol_version':_version(shutil.which('pymol'),'-h'),'operating_system':platform.platform(),'command_line':' '.join(sys.argv),'random_seed':seed,'utc_datetime':datetime.now(timezone.utc).isoformat(),'input_sha256':{'receptor':_sha256(receptor),'ligands':_sha256(sdf)}}
+    (project.path/'provenance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
+    return provenance
+
+
+def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0, ga_runs: int=10, parallel_jobs: int=1, top_n: int=20, allow_failed_redocking_validation: bool = False, seed: int = 20250301) -> dict[str, object]:
     receptor=receptor.resolve(); sdf=sdf.resolve()
     log('Creating project and detecting co-crystallized ligand')
     project=prepare_project(project_dir,receptor,sdf,padding,ga_runs,parallel_jobs)
+    project.docking.random_seed=seed
+    _write_provenance(project, receptor, sdf, seed)
     ref=choose_reference_ligand(receptor); assert ref and project.grid
     log('Reading experimental IC50 metadata')
     assay=extract_sdf_assay(sdf,project.path/'analysis/assay.csv')

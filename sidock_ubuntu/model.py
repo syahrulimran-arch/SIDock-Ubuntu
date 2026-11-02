@@ -24,6 +24,7 @@ class DockingParameters:
     ga_num_generations: int = 27_000
     rmstol: float = 2.0
     parallel_jobs: int = 1
+    random_seed: int = 20250301
 
 
 @dataclass

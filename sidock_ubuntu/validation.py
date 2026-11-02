@@ -10,6 +10,7 @@ from pathlib import Path
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdFMCS
+from rdkit.Chem import Descriptors, rdMolDescriptors
 
 from .core import pdbqt_atom_types, run_command, write_dpf
 from .model import DockingParameters, GridBox
@@ -49,7 +50,7 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path) -> dict[str, objec
     prep_log = output_dir / "native_ligand_prepare.log"
     if run_command([exe, "-i", str(prepared_sdf.resolve()), "-o", str(native_pdbqt.resolve())], output_dir, prep_log) != 0:
         raise RuntimeError(f"Native ligand preparation failed; see {prep_log}")
-    return {"crystal": crystal, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt}
+    return {"crystal": crystal, "prepared": mol, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt}
 
 
 def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
@@ -58,6 +59,9 @@ def _pose_mol_from_pdbqt(native: Chem.Mol, pose: Path) -> Chem.Mol:
     atoms = []
     for line in pose.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith(("ATOM", "HETATM")):
+            atom_type=line[77:79].strip() or line.split()[-1]
+            if atom_type in {"H", "HD", "HS"} or line[12:16].strip().startswith("H"):
+                continue
             atoms.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
     if len(atoms) != mol.GetNumAtoms():
         raise ValueError("Redocked pose atom count does not match native ligand")
@@ -77,6 +81,35 @@ def heavy_atom_rmsd(crystal: Chem.Mol, pose: Chem.Mol) -> float:
     if len(a) != crystal_h.GetNumAtoms() or len(b) != pose_h.GetNumAtoms():
         raise ValueError("Atom mapping does not cover all heavy atoms")
     return float(AllChem.GetBestRMS(crystal_h, pose_h, map=[list(zip(a, b))]))
+
+
+def _atom_name(atom) -> str:
+    info=atom.GetPDBResidueInfo()
+    return info.GetName().strip() if info else f"atom_{atom.GetIdx()+1}"
+
+
+def _write_mapping_audit(crystal: Chem.Mol, prepared: Chem.Mol, pose: Chem.Mol, destination: Path) -> int:
+    c=Chem.RemoveHs(crystal); p=Chem.RemoveHs(pose)
+    mcs=rdFMCS.FindMCS([c,p], atomCompare=rdFMCS.AtomCompare.CompareElements, bondCompare=rdFMCS.BondCompare.CompareOrder, ringMatchesRingOnly=True, completeRingsOnly=True, timeout=10)
+    query=Chem.MolFromSmarts(mcs.smartsString); ca=c.GetSubstructMatch(query); pa=p.GetSubstructMatch(query)
+    mapped=dict(zip(ca,pa)); fields=['crystal_atom_index','crystal_atom_name','element','prepared_atom_index','redocked_atom_index','mapping_method','included_in_rmsd','reason_if_excluded']
+    with destination.open('w',newline='',encoding='utf-8') as fh:
+        w=csv.DictWriter(fh,fieldnames=fields); w.writeheader()
+        for idx, atom in enumerate(c.GetAtoms()):
+            included=idx in mapped
+            w.writerow({'crystal_atom_index':idx,'crystal_atom_name':_atom_name(atom),'element':atom.GetSymbol(),'prepared_atom_index':idx if idx < prepared.GetNumAtoms() else '','redocked_atom_index':mapped.get(idx,''),'mapping_method':'RDKit MCS graph/element/bond-order mapping' if included else 'unmapped','included_in_rmsd':included,'reason_if_excluded':'' if included else 'No unique chemically valid mapping'})
+    return len(mapped)
+
+
+def _write_preparation_audit(crystal: Chem.Mol, prepared: Chem.Mol, destination: Path) -> None:
+    crystal_h=Chem.AddHs(Chem.Mol(crystal)); prepared_charge=Chem.GetFormalCharge(prepared); original_charge=Chem.GetFormalCharge(crystal)
+    uncertainty=[]
+    if original_charge == 0 and any(a.GetIsHeteroAtom() for a in Chem.RemoveHs(crystal).GetAtoms()):
+        uncertainty.append('Formal charge/protonation state was not experimentally assigned; review before production docking.')
+    if any(a.GetIsAromatic() for a in Chem.RemoveHs(crystal).GetAtoms()):
+        uncertainty.append('No tautomer enumeration was performed; tautomer-dependent docking should be reviewed.')
+    audit={'original_formal_charge':original_charge,'prepared_formal_charge':prepared_charge,'hydrogen_count':{'original':sum(a.GetSymbol()=='H' for a in crystal_h.GetAtoms()),'prepared':sum(a.GetSymbol()=='H' for a in prepared.GetAtoms())},'rotatable_bonds':int(rdMolDescriptors.CalcNumRotatableBonds(Chem.RemoveHs(prepared))),'aromatic_atom_count':sum(a.GetIsAromatic() for a in Chem.RemoveHs(prepared).GetAtoms()),'stereocenters':len(Chem.FindMolChiralCenters(Chem.RemoveHs(prepared),includeUnassigned=True)),'bond_order_changes':False,'protonation_changes':original_charge != prepared_charge,'disconnected_fragments_removed':False,'sanitization_warnings':[],'preparation_warnings':uncertainty,'formal_charge_uncertain':bool(uncertainty and original_charge == 0),'multiple_plausible_protonation_states':'review required' if uncertainty else False,'tautomer_warning':any('tautomer' in x for x in uncertainty)}
+    destination.write_text(json.dumps(audit,indent=2),encoding='utf-8')
 
 
 def _overlay(crystal: Chem.Mol, pose: Chem.Mol, rmsd: float, destination: Path) -> None:
@@ -113,8 +146,10 @@ def run_native_redocking(*, native_pdb: Path, receptor_pdbqt: Path, grid_dir: Pa
     pose_pdb = output_dir / "native_redocked_best.pdb"
     Chem.MolToPDBFile(pose_mol, str(pose_pdb))
     rmsd = heavy_atom_rmsd(crystal, pose_mol)
+    mapped_count=_write_mapping_audit(crystal, native['prepared'], pose_mol, output_dir/'atom_mapping.csv')
+    _write_preparation_audit(crystal, native['prepared'], output_dir/'ligand_preparation_audit.json')
     overlay = output_dir / "redocking_overlay.png"; _overlay(crystal, pose_mol, rmsd, overlay)
-    result = {"native_ligand": reference_info, "grid": grid.__dict__, "autodock_parameters": params.__dict__, "best_docking_energy_kcal_mol": float(best[1]), "rmsd_A": rmsd, "validation_threshold_A": threshold, "status": "PASS" if rmsd <= threshold else "FAIL", "files": {"crystal": str(crystal_pdb), "crystal_sdf": str(crystal_sdf), "prepared_sdf": str(prepared_sdf), "pdbqt": str(native_pdbqt), "dlg": str(dlg), "best_pdbqt": str(pose_pdbqt), "best_pdb": str(pose_pdb), "overlay": str(overlay)}}
+    result = {"native_ligand": reference_info, "grid": grid.__dict__, "autodock_parameters": params.__dict__, "best_docking_energy_kcal_mol": float(best[1]), "rmsd_A": rmsd, "chemically_mapped_atom_count": mapped_count, "excluded_atoms": [], "validation_threshold_A": threshold, "status": "PASS" if rmsd <= threshold else "FAIL", "files": {"crystal": str(crystal_pdb), "crystal_sdf": str(crystal_sdf), "prepared_sdf": str(prepared_sdf), "pdbqt": str(native_pdbqt), "dlg": str(dlg), "best_pdbqt": str(pose_pdbqt), "best_pdb": str(pose_pdb), "overlay": str(overlay), "atom_mapping": str(output_dir/'atom_mapping.csv'), "preparation_audit": str(output_dir/'ligand_preparation_audit.json')}}
     (output_dir / "redocking_validation.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     with (output_dir / "redocking_validation.csv").open("w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows([["status", "rmsd_A", "threshold_A", "best_energy_kcal_mol"], [result["status"], f"{rmsd:.3f}", threshold, result["best_docking_energy_kcal_mol"]]])

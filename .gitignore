@@ -24,3 +24,7 @@ integration_v02/
 # Temporary/generated project analysis
 **/analysis/
 **/logs/
+
+# Real benchmark generated runs; retain benchmark inputs and source metadata
+benchmark_v03/run*/
+benchmark_v03/independent/
