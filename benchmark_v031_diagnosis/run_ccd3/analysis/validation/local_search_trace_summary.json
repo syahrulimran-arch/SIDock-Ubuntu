@@ -1,0 +1,48 @@
+{
+  "first_recorded_RMSD_A": 0.0,
+  "final_trace_RMSD_A": 8.248876,
+  "evaluations": 13394,
+  "initial_translation": [
+    44.471,
+    79.776,
+    39.435
+  ],
+  "initial_orientation": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "initial_torsions": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "final_translation": [
+    44.565101,
+    79.8899,
+    39.44775
+  ],
+  "final_orientation": [
+    0.018591,
+    0.017889,
+    -0.00132,
+    0.999666
+  ],
+  "final_torsions_deg": [
+    1.33,
+    2.3,
+    0.27,
+    -1.1,
+    -2.57,
+    -1.48,
+    0.66,
+    0.28
+  ],
+  "trajectory_resolution": "Only initial and final states are emitted by AutoDock runvvv; intermediate RMSD/energy states unavailable."
+}
