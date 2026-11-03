@@ -19,8 +19,8 @@ class StageRunner:
         self.project=project; self.config=config; self.executors=executors or {}
 
     def _validation_mode(self) -> str:
-        mode=str((self.config or {}).get('validation',{}).get('mode','if_available')).lower()
-        return mode if mode in {'required','if_available','skip'} else 'if_available'
+        mode=str((self.config or {}).get('validation',{}).get('mode','required')).lower()
+        return mode if mode in {'required','if_available','skip'} else 'required'
 
     def _read_validation_policy(self) -> str | None:
         try:
