@@ -14,7 +14,7 @@ VALIDATION_MODES = ("required", "if_available", "skip")
 DEFAULT_CONFIG = {
     "reference": {"ligand": None, "remote_enrichment": False},
     "validation": {"mode": "required", "rmsd_threshold": 2.0, "ga_runs": 10},
-    "docking": {"ga_runs": 10, "parallel_jobs": "auto", "population_size": 150,
+    "docking": {"ga_runs": 10, "parallel_jobs": "auto", "max_parallel_jobs": 10, "population_size": 150,
                  "evaluations": 2500000, "generations": 27000,
                  "mutation_rate": 0.02, "crossover_rate": 0.8, "local_search_frequency": 0.26},
     "interaction": {"primary_engine": "plip"},
@@ -59,6 +59,11 @@ def validate_config(config: dict) -> list[str]:
             if int(parallel) < 1: errors.append("docking.parallel_jobs must be auto or >= 1")
         except (TypeError, ValueError):
             errors.append("docking.parallel_jobs must be auto or >= 1")
+    try:
+        if int(config["docking"].get("max_parallel_jobs", 10)) < 1:
+            errors.append("docking.max_parallel_jobs must be >= 1")
+    except (TypeError, ValueError):
+        errors.append("docking.max_parallel_jobs must be >= 1")
     for key in ("population_size", "evaluations", "generations"):
         if config["docking"][key] < 1: errors.append(f"docking.{key} must be >= 1")
     if config["interaction"]["primary_engine"].lower() != "plip": errors.append("interaction.primary_engine must be plip")
@@ -72,6 +77,7 @@ def summary(config: dict) -> str:
             f"Validation GA runs: {config['validation']['ga_runs']}\n"
             f"Docking GA runs per compound: {d.get('ga_runs',10)}\n"
             f"Parallel compound jobs: {d.get('parallel_jobs','auto')}\n"
+            f"Maximum parallel compound jobs: {d.get('max_parallel_jobs',10)}\n"
             f"Population: {d['population_size']}\n"
             f"Evaluations: {d['evaluations']:,}\n"
             f"Interaction engine: {config['interaction']['primary_engine'].upper()}")
