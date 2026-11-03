@@ -86,3 +86,27 @@ def test_assay_uses_only_explicit_recorded_values(tmp_path):
     assert result["activity_correlation"]["n"] == 1
     assert result["activity_correlation"]["pearson_r"] is None
     assert next(x for x in result["compounds"] if x["compound_id"] == "7i")["ic50_uM"] == 3.5
+
+def test_distance_rebuilt_from_saved_plip_xml_without_docking(tmp_path):
+    p, _ = _fixture(tmp_path)
+    raw = p / "analysis/plip_7i/plip"
+    raw.mkdir(parents=True)
+    (raw / "binding_report.xml").write_text(
+        "<report><bindingsite><hydrogen_bonds><hydrogen_bond>"
+        "<reschain>A</reschain><restype>ASP</restype><resnr>215</resnr>"
+        "<dist_d-a>2.81</dist_d-a><don_angle>155</don_angle>"
+        "</hydrogen_bond></hydrogen_bonds>"
+        "<hydrophobic_interactions><hydrophobic_interaction>"
+        "<reschain>A</reschain><restype>TRP</restype><resnr>150</resnr>"
+        "<dist>3.67</dist>"
+        "</hydrophobic_interaction></hydrophobic_interactions>"
+        "</bindingsite></report>")
+    original = (p / "analysis/interactions_plip_7i.csv").read_bytes()
+    result = write_scientific_report(p)
+    assert result["docking_rerun"] is False
+    assert (p / "analysis/interactions_plip_7i.csv").read_bytes() == original
+    report = (p / "analysis/scientific_report.md").read_text()
+    assert "2.81" in report and "3.67" in report
+    assert "155.0" in report
+    details = (p / "analysis/interactions_detailed_7i.csv").read_text()
+    assert "2.81" in details and "3.67" in details
