@@ -30,6 +30,14 @@ def _global(project: Path) -> dict:
         except (FileNotFoundError, ValueError, TypeError): out[key]=None
     return out
 
+def _validation_policy(project: Path) -> str:
+    path=project/'provenance'/'validation_policy.json'
+    try:
+        mode=str(json.loads(path.read_text(encoding='utf-8')).get('mode','if_available')).lower()
+    except Exception:
+        mode='if_available'
+    return mode if mode in {'required','if_available','skip'} else 'if_available'
+
 def load_finalization_input(project: Path) -> ProjectResultSnapshot:
     state=project_status(project); compounds=[]
     for cid, stages in state.get('compounds',{}).items():
@@ -40,12 +48,16 @@ def load_finalization_input(project: Path) -> ProjectResultSnapshot:
                 errors.append({'stage':name,'error_code':rec.get('error_code'),'message':rec.get('error_message')})
             warnings.extend(rec.get('warnings',[]) or [])
         compounds.append(CompoundResultSnapshot(cid,stages,warnings,errors))
-    validation=out_validation=_global(project).get('validation')
-    if validation is not None and getattr(validation,'scientific_status',None)=='FAIL': status='BLOCKED'
+    outputs=_global(project); validation=outputs.get('validation'); mode=_validation_policy(project)
+    validation_scientific=getattr(validation,'scientific_status',None) if validation is not None else None
+    validation_warnings=state.get('stages',{}).get('VALIDATION',{}).get('warnings',[]) or []
+    unvalidated=(mode=='skip' or 'UNVALIDATED_DOCKING' in validation_warnings or (mode=='if_available' and validation_scientific not in {None,'PASS'}))
+    warnings=list(validation_warnings)
+    if validation_scientific=='FAIL' and mode=='required': status='BLOCKED'
     elif any(any(s.get('status')=='FAIL' for s in c.stages.values() if isinstance(s,dict)) for c in compounds): status='PARTIAL'
-    elif compounds and all(all(s.get('status')=='PASS' for s in c.stages.values() if isinstance(s,dict)) for c in compounds): status='COMPLETE'
+    elif compounds and all(all(s.get('status')=='PASS' for s in c.stages.values() if isinstance(s,dict)) for c in compounds): status='COMPLETE_WITH_WARNINGS' if unvalidated else 'COMPLETE'
     else: status='PENDING'
-    return ProjectResultSnapshot(project,_global(project),compounds,[],status)
+    return ProjectResultSnapshot(project,outputs,compounds,warnings,status)
 
 def _disk_compound_summary(project: Path, cid: str, stages: dict) -> dict:
     """Reconstruct the canonical summary solely from persisted stage artifacts."""
@@ -97,7 +109,15 @@ def snapshot_evidence(snapshot: ProjectResultSnapshot) -> dict:
         if snapshot.status=='BLOCKED': compound_status='BLOCKED'
         else: compound_status=('COMPLETE' if all(s.get('status')=='PASS' for s in stages.values() if isinstance(s,dict)) else 'FAILED')
         compounds.append({'compound_id':c.compound_id,'status':compound_status,**({k:None for k in disk} if compound_status=='BLOCKED' else disk),'warnings':c.warnings,'errors':c.errors})
-    validation=snapshot.global_outputs.get('validation')
-    val={'sampling_result':getattr(validation,'scientific_status',None),'native_redocking_RMSD_A':getattr(validation,'minimum_rmsd',None),'rmsd_threshold':getattr(validation,'rmsd_threshold',None)} if validation else {}
+    validation=snapshot.global_outputs.get('validation'); mode=_validation_policy(snapshot.project)
+    scientific=getattr(validation,'scientific_status',None) if validation else None
+    execution=getattr(validation,'execution_status',None) if validation else None
+    docking_validation_status='VALIDATED' if scientific=='PASS' else 'UNVALIDATED'
+    val={'sampling_result':scientific or ('UNVALIDATED' if mode=='skip' else None),
+         'native_redocking_RMSD_A':getattr(validation,'minimum_rmsd',None) if validation else None,
+         'rmsd_threshold':getattr(validation,'rmsd_threshold',None) if validation else None,
+         'execution_status':execution or ('SKIPPED' if mode=='skip' else None),
+         'validation_policy':mode,
+         'docking_validation_status':docking_validation_status}
     blocked_reason='NATIVE_REDOCKING_RMSD_THRESHOLD' if snapshot.status=='BLOCKED' else None
-    return {'schema_version':'0.4','project_status':snapshot.status,'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY','validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,'blocked_reason':blocked_reason,'compounds':compounds,'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
+    return {'schema_version':'0.6','project_status':snapshot.status,'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY','validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,'blocked_reason':blocked_reason,'compounds':compounds,'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
