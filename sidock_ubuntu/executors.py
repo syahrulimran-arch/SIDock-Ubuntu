@@ -143,7 +143,7 @@ def _default_global_callback(ctx: ProductionContext, name: str):
                 # identity needed by the existing reference seam.
                 candidates=[]
             selection_artifacts={}; ref_cfg=ctx.config.get('reference',{})
-            selected=next((g for g in groups if g.key==ref_cfg.get('ligand')),None) or choose_reference_ligand(ctx.receptor)
+            selected=next((g for g in groups if g.key==ref_cfg.get('ligand')),None) or choose_reference_ligand(source_structure)
             ccd_source=load_local_ccd(ref_cfg.get('ccd_path'), selected.resname if selected else None) if ref_cfg.get('ccd_path') else {'available':False,'parse_status':'MISSING','warnings':['CCD_SOURCE_NOT_CONFIGURED']}
             mmcif_source=load_local_mmcif(ref_cfg.get('mmcif_path')) if ref_cfg.get('mmcif_path') else {'available':False,'parse_status':'MISSING','warnings':['MMCIF_SOURCE_NOT_CONFIGURED']}
             if candidates:
