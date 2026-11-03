@@ -31,6 +31,8 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument('--reference-ligand', default=None, help='Explicit ligand instance, e.g. P43:D:1263')
     r.add_argument('--allow-incomplete-peripheral', action='store_true', help='Allow audited incomplete residues 5–8 Å from reference ligand')
     sub.add_parser('doctor', help='Check the SIDock runtime and docking executables')
+    sr=sub.add_parser('report', help='Generate evidence-grounded analysis and write-up without redocking')
+    sr.add_argument('project', type=Path)
     for name in ('status', 'resume'):
         q = sub.add_parser(name, help=f'{name.title()} a project')
         q.add_argument('project', type=Path)
@@ -102,6 +104,9 @@ def main() -> None:
         write_results(args.project); write_dashboard(args.project)
     elif args.command == 'doctor':
         raise SystemExit(_doctor())
+    elif args.command == 'report':
+        from .scientific_report import write_scientific_report
+        print(json.dumps(write_scientific_report(args.project),indent=2))
     elif args.command == 'status':
         _print_status(args.project)
     elif args.command == 'resume':
