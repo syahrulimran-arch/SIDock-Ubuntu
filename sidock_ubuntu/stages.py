@@ -95,17 +95,23 @@ def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path,
     import shutil
 
     dpf_dir.mkdir(parents=True,exist_ok=True); dlg_dir.mkdir(parents=True,exist_ok=True); work_dir.mkdir(parents=True,exist_ok=True)
+    project_root=dpf_dir.parent.parent
     run_dir=work_dir/ligand_pdbqt.stem; run_dir.mkdir(parents=True,exist_ok=True)
     local_ligand=run_dir/ligand_pdbqt.name
     shutil.copy2(ligand_pdbqt,local_ligand)
 
-    for artifact in work_dir.glob(f'{receptor_stem}.*.map*'):
+    # Read the immutable grid artifacts directly rather than relying on the
+    # legacy shared docking/work copies. This removes a write race when many
+    # AutoDock jobs start at the same time.
+    grid_source=project_root/'grid'/'production'
+    if not grid_source.is_dir(): grid_source=project_root/'grid'
+    for artifact in grid_source.glob(f'{receptor_stem}.*.map*'):
         if artifact.is_file(): shutil.copy2(artifact,run_dir/artifact.name)
-    fld=work_dir/f'{receptor_stem}.maps.fld'
+    fld=grid_source/f'{receptor_stem}.maps.fld'
     if fld.is_file(): shutil.copy2(fld,run_dir/fld.name)
 
     effective_params=copy.copy(params)
-    settings_path=dpf_dir.parent.parent/'provenance'/'parallel_execution.json'
+    settings_path=project_root/'provenance'/'parallel_execution.json'
     if settings_path.is_file():
         try:
             settings=json.loads(settings_path.read_text(encoding='utf-8'))
