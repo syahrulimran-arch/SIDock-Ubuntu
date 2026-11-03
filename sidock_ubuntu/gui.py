@@ -98,14 +98,14 @@ def create_app(workspace=None):
         data=project_view(get_project(project_id)); import html as h
         state=data['state']; final=derived_project_status(state); counts=data.get('reference',{}); dash=data['dashboard']
         if dash['primary_action']=='RUN':
-            policy=dash.get('validation_policy','if_available')
+            policy=dash.get('validation_policy','required')
             options=''.join(f"<option value='{value}'{' selected' if value==policy else ''}>{label}</option>" for value,label in (('if_available','Validate if available (continue as unvalidated if RMSD fails)'),('required','Require native validation (RMSD ≤ 2 Å)'),('skip','Skip native redocking validation')))
             action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><label>Validation policy <select name='validation_mode'>{options}</select></label><small>Skipping or accepting failed validation marks the docking results as UNVALIDATED.</small><br><button type='submit'>RUN</button></form>"
         elif dash['primary_action']=='RESUME':
             action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>RESUME</button></form>"
         else:
             action=f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>"
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','if_available')))}</b></p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
         if final=='BLOCKED': body += '<p class="error">Strict native redocking validation blocked compound docking.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
@@ -168,7 +168,7 @@ def create_app(workspace=None):
         try: return set_reference_override(get_project(project_id), instance)
         except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc))
     @app.post('/projects/{project_id}/run')
-    def run(project_id, request: Request, validation_mode: str=Form('if_available')):
+    def run(project_id, request: Request, validation_mode: str=Form('required')):
         try:
             result=start_run(get_project(project_id), validation_mode=validation_mode)
             if 'text/html' in request.headers.get('accept','') or request.headers.get('content-type','').startswith('application/x-www-form-urlencoded'):
