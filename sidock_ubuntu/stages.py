@@ -100,9 +100,6 @@ def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path,
     local_ligand=run_dir/ligand_pdbqt.name
     shutil.copy2(ligand_pdbqt,local_ligand)
 
-    # Read the immutable grid artifacts directly rather than relying on the
-    # legacy shared docking/work copies. This removes a write race when many
-    # AutoDock jobs start at the same time.
     grid_source=project_root/'grid'/'production'
     if not grid_source.is_dir(): grid_source=project_root/'grid'
     for artifact in grid_source.glob(f'{receptor_stem}.*.map*'):
@@ -140,10 +137,10 @@ def run_pose_extraction_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
     return extract_docking_poses(dlg,analysis_dir/'poses',analysis_dir/'complexes',receptor)
 
 def run_cluster_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
-    """Read the existing DLG-derived cluster output without reclustering."""
+    """Read one DLG-derived cluster table and persist it per compound."""
     dlg=_single_dlg(dlg_dir)
     if dlg is None: raise RuntimeError('E601 DLG_PARSE_FAILED')
-    result=analyze_autodock_clusters(dlg,analysis_dir/'clusters.csv')
+    result=analyze_autodock_clusters(dlg,analysis_dir/f'clusters_{dlg.stem}.csv')
     return result
 
 def run_pose_and_cluster_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
