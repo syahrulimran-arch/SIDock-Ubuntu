@@ -10,18 +10,20 @@ from sidock_ubuntu.state import COMPOUND_STAGES, ensure_compounds, project_statu
 from sidock_ubuntu.stages import run_compound_docking
 
 
-def test_parallel_workers_auto_uses_available_cpus_but_not_more_than_compounds(tmp_path, monkeypatch):
+def test_parallel_workers_auto_uses_available_cpus_but_respects_ten_job_ceiling(tmp_path, monkeypatch):
     monkeypatch.setattr('sidock_ubuntu.orchestrator.available_cpu_count', lambda: 32)
-    runner=StageRunner(tmp_path, {'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':'auto','ga_runs':25}}, {})
+    runner=StageRunner(tmp_path, {'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':'auto','max_parallel_jobs':10,'ga_runs':25}}, {})
     assert runner._parallel_workers(10) == 10
-    assert runner._parallel_workers(40) == 32
+    assert runner._parallel_workers(40) == 10
 
 
-def test_parallel_workers_manual_override_is_capped_by_available_cpu_and_compounds(tmp_path, monkeypatch):
+def test_parallel_workers_manual_override_is_capped_by_available_cpu_compounds_and_ceiling(tmp_path, monkeypatch):
     monkeypatch.setattr('sidock_ubuntu.orchestrator.available_cpu_count', lambda: 16)
-    runner=StageRunner(tmp_path, {'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':8,'ga_runs':25}}, {})
-    assert runner._parallel_workers(20) == 8
+    runner=StageRunner(tmp_path, {'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':16,'max_parallel_jobs':10,'ga_runs':25}}, {})
+    assert runner._parallel_workers(20) == 10
     assert runner._parallel_workers(4) == 4
+    runner=StageRunner(tmp_path, {'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':8,'max_parallel_jobs':10,'ga_runs':25}}, {})
+    assert runner._parallel_workers(20) == 8
 
 
 def test_compound_docking_batches_autodock_concurrently_and_persists_ga_runs(tmp_path, monkeypatch):
@@ -53,7 +55,7 @@ def test_compound_docking_batches_autodock_concurrently_and_persists_ga_runs(tmp
         'plip':lambda cid: StageResult('PASS', {}),
         'figures':lambda cid: StageResult('PASS', {}),
     }
-    config={'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':'auto','ga_runs':37}}
+    config={'validation':{'mode':'skip'}, 'docking':{'parallel_jobs':'auto','max_parallel_jobs':10,'ga_runs':37}}
     runner=StageRunner(tmp_path,config,executors)
     runner._run_compound_unlocked('A')
 
@@ -62,6 +64,7 @@ def test_compound_docking_batches_autodock_concurrently_and_persists_ga_runs(tmp
     assert all(state['compounds'][cid]['docking']['status']=='PASS' for cid in ('A','B','C','D'))
     settings=json.loads((tmp_path/'provenance'/'parallel_execution.json').read_text())
     assert settings['detected_cpus']==4
+    assert settings['max_parallel_jobs']==10
     assert settings['effective_parallel_workers']==4
     assert settings['ga_runs_per_compound']==37
     assert settings['parallelized_stage']=='docking'
@@ -104,6 +107,8 @@ def test_config_keeps_ga_runs_and_parallel_jobs_independent():
     config['validation']['ga_runs']=7
     config['docking']['ga_runs']=83
     config['docking']['parallel_jobs']='auto'
+    config['docking']['max_parallel_jobs']=10
     assert validate_config(config)==[]
     assert config['validation']['ga_runs']==7
     assert config['docking']['ga_runs']==83
+    assert config['docking']['max_parallel_jobs']==10
