@@ -111,7 +111,8 @@ def _copy_input(source: Path, destination: Path, suffixes: tuple[str, ...]) -> P
 
 
 def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
-                   mmcif: Path | None = None, ccd: Path | None = None) -> Path:
+                   mmcif: Path | None = None, ccd: Path | None = None,
+                   validation_structure: Path | None = None, pdb_id: str | None = None) -> Path:
     project = workspace_path(workspace, name)
     if project.exists():
         raise FileExistsError("E003 PROJECT_ALREADY_EXISTS")
@@ -121,11 +122,14 @@ def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
         sdf_dst = _copy_input(compounds, project / "input" / "compounds.sdf", (".sdf",))
         mmcif_dst = _copy_input(mmcif, project / "input" / "structure.cif", (".cif", ".mmcif")) if mmcif else None
         ccd_dst = _copy_input(ccd, project / "input" / "ccd.json", (".json", ".cif")) if ccd else None
+        validation_dst = _copy_input(validation_structure, project / "input" / "validation_structure.pdb", (".pdb", ".ent", ".cif", ".mmcif")) if validation_structure else None
         model = Project(str(project), str(protein_dst), ligand_source=str(sdf_dst), docking=DockingParameters())
         model.ensure_layout(); model.save()
+        from .intake import protein_intake_summary
+        (project / "intake.json").write_text(json.dumps(protein_intake_summary(protein_dst), indent=2), encoding="utf-8")
         state = {"stages": {stage: {"status": "PENDING"} for stage in STAGES}, "compounds": {}, "updated": None}
         (project / "project_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
-        (project / "gui_inputs.json").write_text(json.dumps({"mmcif": str(mmcif_dst) if mmcif_dst else None, "ccd": str(ccd_dst) if ccd_dst else None}, indent=2), encoding="utf-8")
+        (project / "gui_inputs.json").write_text(json.dumps({"mmcif": str(mmcif_dst) if mmcif_dst else None, "ccd": str(ccd_dst) if ccd_dst else None, "validation_structure": str(validation_dst) if validation_dst else None, "pdb_id": pdb_id or None}, indent=2), encoding="utf-8")
         return project
     except Exception:
         shutil.rmtree(project, ignore_errors=True)

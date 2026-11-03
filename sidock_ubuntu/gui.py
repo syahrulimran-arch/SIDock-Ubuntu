@@ -20,7 +20,7 @@ def _workspace(value=None):
 
 def create_app(workspace=None):
     if FastAPI is None: raise RuntimeError('FastAPI is required for the v0.5 GUI')
-    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.5.2')
+    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.6.0.dev0')
     static_dir=Path(__file__).with_name('static'); static_dir.mkdir(exist_ok=True); app.mount('/static', StaticFiles(directory=str(static_dir)), name='static')
     def page(title, body):
         import html as h
@@ -29,7 +29,7 @@ def create_app(workspace=None):
     def index(): return page('Projects', "<h1>SIDock Ubuntu</h1><p>Local thin client for persisted projects.</p><p><a href='/projects'>Open projects</a> or <a href='/projects/new'>create a project</a>.</p>")
     @app.get('/projects/new',response_class=HTMLResponse)
     def new_project():
-        return page('New Project', "<h1>New project</h1><form action='/projects' method='post' enctype='multipart/form-data'><label>Project name <input name='name' required></label><label>Protein PDB <input name='protein' type='file' accept='.pdb,.ent' required></label><small>Required crystallographic receptor structure.</small><label>Compound SDF <input name='compounds' type='file' accept='.sdf' required></label><small>Required compound library.</small><label>mmCIF (optional) <input name='mmcif' type='file' accept='.cif,.mmcif'></label><label>Local CCD (optional) <input name='ccd' type='file' accept='.json,.cif'></label><button>Create project</button></form>")
+        return page('New Project', "<h1>New project</h1><form action='/projects' method='post' enctype='multipart/form-data'><label>Project name <input name='name' required></label><label>Protein PDB <input name='protein' type='file' accept='.pdb,.ent' required></label><small>Required crystallographic or prepared receptor structure.</small><label>Compound SDF <input name='compounds' type='file' accept='.sdf' required></label><small>Required compound library.</small><label>mmCIF (optional) <input name='mmcif' type='file' accept='.cif,.mmcif'></label><label>Local CCD (optional) <input name='ccd' type='file' accept='.json,.cif'></label><label>Validation structure (optional) <input name='validation_structure' type='file' accept='.pdb,.ent,.cif,.mmcif'></label><label>PDB ID (optional) <input name='pdb_id'></label><button>Create project</button></form>")
     @app.get('/projects',response_class=HTMLResponse)
     def projects():
         import html as h
@@ -63,10 +63,10 @@ def create_app(workspace=None):
     @app.post('/api/config/validate')
     async def config_validate_api(values: dict): return validate_config_values(values)
     @app.post('/projects')
-    async def create(name:str=Form(...),protein:UploadFile=File(...),compounds:UploadFile=File(...),mmcif:UploadFile|None=File(None),ccd:UploadFile|None=File(None)):
+    async def create(name:str=Form(...),protein:UploadFile=File(...),compounds:UploadFile=File(...),mmcif:UploadFile|None=File(None),ccd:UploadFile|None=File(None),validation_structure:UploadFile|None=File(None),pdb_id:str|None=Form(None)):
         upload=root/'.uploads'; upload.mkdir(exist_ok=True); token=safe_project_name(name); files=[]
         try:
-            for item,suffix in ((protein,'.pdb'),(compounds,'.sdf'),(mmcif,'.cif'),(ccd,'.json')):
+            for item,suffix in ((protein,'.pdb'),(compounds,'.sdf'),(mmcif,'.cif'),(ccd,'.json'),(validation_structure,'.pdb')):
                 if item is None: continue
                 allowed={'.pdb':('.pdb','.ent'),'.sdf':('.sdf',),'.cif':('.cif','.mmcif'),'.json':('.json','.cif')}[suffix]
                 if Path(item.filename or '').suffix.lower() not in allowed: raise ValueError('E001 INVALID_INPUT_FILE_EXTENSION')
@@ -82,7 +82,8 @@ def create_app(workspace=None):
             mmcif_file=files[2] if mmcif else None
             ccd_file=files[3] if (mmcif and ccd) else (files[2] if ccd else None)
             validate_uploaded_inputs(files[0],files[1],mmcif_file,ccd_file)
-            project=create_project(root,name,files[0],files[1],mmcif_file,ccd_file); from fastapi.responses import RedirectResponse; return RedirectResponse(f'/projects/{project.name}',status_code=303)
+            validation_file=files[4] if validation_structure else None
+            project=create_project(root,name,files[0],files[1],mmcif_file,ccd_file,validation_file,pdb_id); from fastapi.responses import RedirectResponse; return RedirectResponse(f'/projects/{project.name}',status_code=303)
         except (ValueError,FileExistsError) as exc:
             import html as h
             label='A project with this identifier already exists.' if str(exc).startswith('E003') else str(exc)

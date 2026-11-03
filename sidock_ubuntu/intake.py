@@ -154,10 +154,18 @@ def write_group(group: HeteroGroup, destination: Path) -> Path:
 
 
 def protein_intake_summary(pdb: Path) -> dict[str, object]:
+    from .structure_intake import classify_structure
     groups = hetero_groups(pdb)
     ref = choose_reference_ligand(pdb)
+    semantic=classify_structure(pdb)
     return {
         "pdb": str(pdb.resolve()),
+        "structure_classification": semantic.classification,
+        "structure_reason": semantic.reason,
+        "processed_indicators": list(semantic.processed_indicators),
+        "reference_candidates": list(semantic.candidates),
+        "ions": list(semantic.ions),
+        "waters": list(semantic.waters),
         "hetero_groups": [{"key": g.key, "resname": g.resname, "chain": g.chain, "resseq": g.resseq, "atoms": g.atom_count} for g in groups],
         "selected_reference_ligand": ref.key if ref else None,
         "reference_ligand_atoms": ref.atom_count if ref else 0,
