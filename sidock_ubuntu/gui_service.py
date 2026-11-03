@@ -5,6 +5,7 @@ this module only owns safe storage, state reads, and process coordination.
 """
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import threading
@@ -12,7 +13,7 @@ import csv
 import os, multiprocessing
 from pathlib import Path
 
-from .config import load_config
+from .config import load_config, VALIDATION_MODES
 from .model import DockingParameters, Project
 from .pipeline import run_stage_runner
 from .state import STAGES, project_status, derived_project_status, invalidate_from, _atomic_write
@@ -132,7 +133,8 @@ def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
         (project / "provenance" / "structure_context.json").write_text(json.dumps(context, indent=2), encoding="utf-8")
         state = {"stages": {stage: {"status": "PENDING"} for stage in STAGES}, "compounds": {}, "updated": None}
         (project / "project_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
-        (project / "gui_inputs.json").write_text(json.dumps({"mmcif": str(mmcif_dst) if mmcif_dst else None, "ccd": str(ccd_dst) if ccd_dst else None, "validation_structure": str(validation_dst) if validation_dst else None, "pdb_id": pdb_id or None}, indent=2), encoding="utf-8")
+        default_mode=load_config().get('validation',{}).get('mode','if_available')
+        (project / "gui_inputs.json").write_text(json.dumps({"mmcif": str(mmcif_dst) if mmcif_dst else None, "ccd": str(ccd_dst) if ccd_dst else None, "validation_structure": str(validation_dst) if validation_dst else None, "pdb_id": pdb_id or None, "validation_mode": default_mode}, indent=2), encoding="utf-8")
         return project
     except Exception:
         shutil.rmtree(project, ignore_errors=True)
@@ -210,6 +212,16 @@ def set_reference_override(project: Path, instance: str) -> dict:
     return {'selection_method':'EXPLICIT_OVERRIDE','reference_ligand':instance}
 
 
+def _stored_validation_mode(project: Path) -> str:
+    try:
+        mode=str(json.loads((project/'gui_inputs.json').read_text(encoding='utf-8')).get('validation_mode','')).lower()
+    except Exception:
+        mode=''
+    if mode not in VALIDATION_MODES:
+        mode=str(load_config().get('validation',{}).get('mode','if_available')).lower()
+    return mode if mode in VALIDATION_MODES else 'if_available'
+
+
 def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
     state = project_status(project)
     stored_final=state.get('stages',{}).get('FINALIZATION',{}).get('status','PENDING')
@@ -229,20 +241,20 @@ def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
     except Exception: pass
     try: context=json.loads((project/'provenance'/'structure_context.json').read_text())
     except Exception: pass
-    structure_class=intake.get('structure_classification')
+    structure_class=intake.get('structure_classification'); policy=_stored_validation_mode(project)
     validation_attached=bool(context.get('validation_structure',{}).get('path')) and context.get('validation_structure',{}).get('path') != context.get('production_receptor',{}).get('path')
     if active or locked: action, url, message='RUNNING', None, 'Project currently executing.'
     elif reference_status=='LOW': action, url, message='SELECT_REFERENCE', f'/projects/{project.name}/reference', 'Reference ligand selection requires an explicit choice.'
-    elif structure_class in {'PROCESSED_STRIPPED','APO_NO_REFERENCE','ION_ONLY'} and not validation_attached: action, url, message='UPLOAD_VALIDATION_STRUCTURE', f'/projects/{project.name}/reference-inputs', 'No usable crystallographic reference ligand is available. Upload a validation structure.'
-    elif context.get('validation_mode')=='SURROGATE_HOLO_VALIDATION': action, url, message='NO_NATIVE_VALIDATION', f'/projects/{project.name}/reference-inputs', 'The validation structure is related but not equivalent for strict native validation.'
-    elif final=='BLOCKED' or validation.get('scientific_status')=='FAIL': action, url, message='VIEW_VALIDATION', f'/projects/{project.name}/results', 'Native redocking validation failed; compound docking was not performed.'
+    elif structure_class in {'PROCESSED_STRIPPED','APO_NO_REFERENCE','ION_ONLY'} and not validation_attached: action, url, message='UPLOAD_VALIDATION_STRUCTURE', f'/projects/{project.name}/reference-inputs', 'No reference ligand/site is available to define the docking box. Attach a matching holo/reference structure. Native redocking itself may still be optional.'
+    elif context.get('validation_mode')=='SURROGATE_HOLO_VALIDATION': action, url, message='NO_NATIVE_VALIDATION', f'/projects/{project.name}/reference-inputs', 'The attached structure is related but not equivalent and cannot be silently used as a native reference/grid source.'
+    elif final=='BLOCKED': action, url, message='VIEW_VALIDATION', f'/projects/{project.name}/results', 'Strict native redocking validation blocked this run.'
     elif job and job.get('status') in {'INTERRUPTED','ORPHANED'} or stored_final in {'STALE'}: action, url, message='RESUME', f'/projects/{project.name}/resume', 'Persisted scientific state can be resumed.'
     elif final in {'COMPLETE','COMPLETE_WITH_WARNINGS','PARTIAL'}: action, url, message='VIEW_RESULTS', f'/projects/{project.name}/results', 'View persisted results.'
     elif job and job.get('status')=='FAILED': action, url, message='RESUME', f'/projects/{project.name}/resume', 'The previous execution failed and may be resumed.'
     elif not dependency_ready: action, url, message='NONE', '/doctor', 'Execution environment is not ready.'
     elif reference_status=='NOT_RUN': action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
     else: action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
-    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'structure_classification':structure_class,'validation_mode':context.get('validation_mode'),'compound_total':len(compounds),'input_compound_count':input_count,'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
+    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'structure_classification':structure_class,'validation_mode':context.get('validation_mode'),'validation_policy':policy,'compound_total':len(compounds),'input_compound_count':input_count,'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
 
 def project_view(project: Path) -> dict:
     return {"project": str(project.resolve()), "state": project_status(project), "reference": reference_view(project), 'dashboard':dashboard_view(project)}
@@ -289,9 +301,10 @@ def get_compound_detail(project: Path, compound_id: str) -> dict:
 def get_project_results(project: Path) -> dict:
     state=project_status(project); evidence=_evidence(project)
     compounds=get_compounds(project); statuses=[x['status'] for x in compounds]
-    validation=state.get('stages',{}).get('VALIDATION',{})
     project_status_value=derived_project_status(state)
-    if project_status_value == 'INCOMPLETE' and evidence.get('project_status'):
+    if evidence.get('project_status') in {'COMPLETE_WITH_WARNINGS','BLOCKED','PARTIAL'}:
+        project_status_value=evidence['project_status']
+    elif project_status_value == 'INCOMPLETE' and evidence.get('project_status'):
         project_status_value=evidence['project_status']
     return {'project':str(project.resolve()),'project_status':project_status_value,'validation':evidence.get('validation',{}),'reference':reference_view(project),'compound_counts':{x:statuses.count(x) for x in ('PASS','FAIL','BLOCKED','STALE','PENDING','RUNNING')},'compounds':compounds,'warnings':evidence.get('warnings',[]),'finalized':state.get('stages',{}).get('FINALIZATION',{}).get('status')=='PASS'}
 
@@ -358,7 +371,7 @@ def get_worker_log(project, limit=12000):
     if not path.exists(): return ''
     return path.read_text(encoding='utf-8',errors='replace')[-int(limit):]
 
-def start_run(project: Path, *, config: dict | None = None, reference_ligand: str | None = None, action='RUN') -> dict:
+def start_run(project: Path, *, config: dict | None = None, reference_ligand: str | None = None, validation_mode: str | None = None, action='RUN') -> dict:
     project=project.resolve()
     if get_doctor_status().get('status') == 'NOT_READY':
         raise RuntimeError('Execution environment is not ready; see Doctor for missing dependencies.')
@@ -366,25 +379,32 @@ def start_run(project: Path, *, config: dict | None = None, reference_ligand: st
     if not Path(data.get('receptor_source','')).is_file(): raise RuntimeError('Required protein input is missing.')
     count, _ = input_compound_count(project)
     if count < 1: raise RuntimeError('No valid compounds were found in the project SDF input.')
+    run_config=copy.deepcopy(config or load_config())
+    mode=str(validation_mode or _stored_validation_mode(project) or run_config.get('validation',{}).get('mode','if_available')).lower()
+    if mode not in VALIDATION_MODES: raise RuntimeError('E001 INVALID_VALIDATION_MODE')
+    run_config.setdefault('validation',{})['mode']=mode
+    try: inputs=json.loads((project/'gui_inputs.json').read_text(encoding='utf-8'))
+    except Exception: inputs={}
+    inputs['validation_mode']=mode; _atomic_write(project/'gui_inputs.json',inputs)
     try: intake=json.loads((project/'intake.json').read_text())
     except Exception: intake={}
     try: context=json.loads((project/'provenance'/'structure_context.json').read_text())
     except Exception: context={}
     if intake.get('structure_classification') in {'PROCESSED_STRIPPED','APO_NO_REFERENCE','ION_ONLY'} and not context.get('validation_structure',{}).get('path'):
-        raise RuntimeError('E101 NO_REFERENCE_PRESENT: upload a validation structure before running')
+        raise RuntimeError('E101 NO_REFERENCE_OR_GRID_DEFINITION: no usable ligand/site is available to define the docking box. Attach a matching holo/reference structure. Native redocking validation may still be skipped.')
     if context.get('validation_mode')=='SURROGATE_HOLO_VALIDATION':
-        raise RuntimeError('E102 SURROGATE_STRUCTURE_NOT_NATIVE: strict native validation cannot be transferred')
+        raise RuntimeError('E102 SURROGATE_STRUCTURE_NOT_NATIVE: a related but different structure cannot be silently used as the native reference/grid source')
     with _jobs_lock:
         try:
             with project_lock(project,'reservation'):
                 job=create_job(project,action=action)
-                proc=multiprocessing.Process(target=_worker_entry,args=(str(project),job['job_id'],config or load_config(),reference_ligand),daemon=False); proc.start()
+                proc=multiprocessing.Process(target=_worker_entry,args=(str(project),job['job_id'],run_config,reference_ligand),daemon=False); proc.start()
                 update_job(project,pid=proc.pid,process_start_identity=process_identity(proc.pid))
                 _jobs[str(project)]=proc
         except BlockingIOError as exc: raise RuntimeError('E999 PROJECT_ALREADY_RUNNING') from exc
-    return {**job,'status':'STARTING','pid':proc.pid}
+    return {**job,'status':'STARTING','pid':proc.pid,'validation_mode':mode}
 
 
 def resume_project(project: Path, *, failed_only=False, compound=None) -> dict:
     """Delegate resume to the same CLI/backend machinery in a worker."""
-    return start_run(project, config=load_config(), action='RESUME')
+    return start_run(project, config=load_config(), validation_mode=_stored_validation_mode(project), action='RESUME')
