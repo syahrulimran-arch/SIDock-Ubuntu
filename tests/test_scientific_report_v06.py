@@ -52,7 +52,7 @@ def test_draft_uses_existing_evidence_and_does_not_modify_dlg(tmp_path):
     assert output["ranked_compounds"] == 2
     assert hashlib.sha256((p / "docking/dlg/7i.dlg").read_bytes()).hexdigest() == before
     text = (p / "analysis/scientific_report.md").read_text()
-    assert "7i (-10.38 kcal/mol)" in text
+    assert "7i showed the most favorable AutoDock4 score (-10.38 kcal/mol)" in text
     assert "ASP215 chain A" in text and "TRP150 chain A" in text
     assert "GA runs per compound: 100" in text
     assert "No numeric experimental IC50" in text
