@@ -34,14 +34,60 @@ def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_
     return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info,ccd_path=ccd_path)
 
 def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str):
-    grid_dir.mkdir(parents=True,exist_ok=True)
+    """Generate one role-specific AutoGrid grid and persist exact provenance.
+
+    ``grid_dir`` is authoritative for the grid role. v0.6 uses ``grid/production``
+    for study compounds and ``grid/validation`` for native redocking. Legacy
+    callers that still use ``grid/`` retain the previous behavior.
+    """
+    import hashlib
+    import json
     import shutil
+
+    grid_dir.mkdir(parents=True,exist_ok=True)
     local_receptor=grid_dir/'receptor.pdbqt'
-    if receptor_pdbqt.resolve()!=local_receptor.resolve(): shutil.copy2(receptor_pdbqt,local_receptor)
-    gpf=grid_dir/'receptor.gpf'; write_gpf(receptor_pdbqt,ligand_types,grid,gpf)
-    code=run_command([autogrid,'-p',gpf.name,'-l','receptor.glg'],grid_dir,grid_dir/'autogrid.log')
-    if code!=0: raise RuntimeError('E501 AUTOGRID_FAILED')
-    return {'gpf':gpf,'glg':grid_dir/'receptor.glg'}
+    if receptor_pdbqt.resolve()!=local_receptor.resolve():
+        shutil.copy2(receptor_pdbqt,local_receptor)
+
+    gpf=grid_dir/'receptor.gpf'
+    # Always write the GPF against the execution-local receptor. This makes the
+    # receptor basename, map prefix and working directory an explicit contract.
+    write_gpf(local_receptor,ligand_types,grid,gpf)
+    glg=grid_dir/'receptor.glg'
+    code=run_command([autogrid,'-p',gpf.name,'-l',glg.name],grid_dir,grid_dir/'autogrid.log')
+    if code!=0:
+        raise RuntimeError('E501 AUTOGRID_FAILED')
+
+    maps=sorted(p for p in grid_dir.glob('receptor.*.map*') if p.is_file())
+    role=grid_dir.name if grid_dir.name in {'production','validation'} else 'legacy'
+    receptor_hash=hashlib.sha256(local_receptor.read_bytes()).hexdigest()
+    provenance={
+        'role': role,
+        'receptor_pdbqt': str(local_receptor.resolve()),
+        'receptor_sha256': receptor_hash,
+        'ligand_types': sorted(set(ligand_types)),
+        'center': [grid.center_x,grid.center_y,grid.center_z],
+        'dimensions': [grid.npts_x,grid.npts_y,grid.npts_z],
+        'spacing': grid.spacing,
+        'gpf': str(gpf.resolve()),
+        'glg': str(glg.resolve()),
+        'maps': [str(p.resolve()) for p in maps],
+    }
+    provenance_path=grid_dir/'grid_provenance.json'
+    tmp=provenance_path.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(provenance,indent=2,sort_keys=True),encoding='utf-8')
+    tmp.replace(provenance_path)
+
+    return {
+        'gpf':gpf,
+        'glg':glg,
+        'maps':maps,
+        'center':provenance['center'],
+        'dimensions':provenance['dimensions'],
+        'spacing':provenance['spacing'],
+        'grid_role':role,
+        'grid_provenance':provenance_path,
+    }
 
 def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path, dpf_dir: Path, dlg_dir: Path, ligand_types: list[str], params, autodock: str):
     dpf_dir.mkdir(parents=True,exist_ok=True); dlg_dir.mkdir(parents=True,exist_ok=True); work_dir.mkdir(parents=True,exist_ok=True)
