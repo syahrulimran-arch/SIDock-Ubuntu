@@ -133,7 +133,7 @@ def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
         (project / "provenance" / "structure_context.json").write_text(json.dumps(context, indent=2), encoding="utf-8")
         state = {"stages": {stage: {"status": "PENDING"} for stage in STAGES}, "compounds": {}, "updated": None}
         (project / "project_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
-        default_mode=load_config().get('validation',{}).get('mode','if_available')
+        default_mode=load_config().get('validation',{}).get('mode','required')
         (project / "gui_inputs.json").write_text(json.dumps({"mmcif": str(mmcif_dst) if mmcif_dst else None, "ccd": str(ccd_dst) if ccd_dst else None, "validation_structure": str(validation_dst) if validation_dst else None, "pdb_id": pdb_id or None, "validation_mode": default_mode}, indent=2), encoding="utf-8")
         return project
     except Exception:
@@ -218,8 +218,8 @@ def _stored_validation_mode(project: Path) -> str:
     except Exception:
         mode=''
     if mode not in VALIDATION_MODES:
-        mode=str(load_config().get('validation',{}).get('mode','if_available')).lower()
-    return mode if mode in VALIDATION_MODES else 'if_available'
+        mode=str(load_config().get('validation',{}).get('mode','required')).lower()
+    return mode if mode in VALIDATION_MODES else 'required'
 
 
 def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
@@ -380,7 +380,7 @@ def start_run(project: Path, *, config: dict | None = None, reference_ligand: st
     count, _ = input_compound_count(project)
     if count < 1: raise RuntimeError('No valid compounds were found in the project SDF input.')
     run_config=copy.deepcopy(config or load_config())
-    mode=str(validation_mode or _stored_validation_mode(project) or run_config.get('validation',{}).get('mode','if_available')).lower()
+    mode=str(validation_mode or _stored_validation_mode(project) or run_config.get('validation',{}).get('mode','required')).lower()
     if mode not in VALIDATION_MODES: raise RuntimeError('E001 INVALID_VALIDATION_MODE')
     run_config.setdefault('validation',{})['mode']=mode
     try: inputs=json.loads((project/'gui_inputs.json').read_text(encoding='utf-8'))
