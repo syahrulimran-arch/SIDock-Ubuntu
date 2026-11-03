@@ -36,7 +36,7 @@ def create_app(workspace=None):
         items=[]
         for p in sorted((x for x in root.iterdir() if (x/'project_state.json').exists()), key=lambda x:x.stat().st_mtime, reverse=True):
             state=project_status(p); final=derived_project_status(state)
-            items.append(f"<tr><td><a href='/projects/{h.escape(p.name)}'>{h.escape(final)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='/projects/{h.escape(p.name)}'>Open</a></td></tr>")
+            items.append(f"<tr><td><a href='/projects/{h.escape(p.name)}'>{h.escape(p.name)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='/projects/{h.escape(p.name)}'>Open</a></td></tr>")
         body="<h1>Projects</h1>"+("<table><tr><th>Project</th><th>Status</th><th></th></tr>"+''.join(items)+"</table>" if items else "<p>No projects yet.</p><p><a href='/projects/new'>Create your first project</a></p>")
         return page('Projects',body)
 
@@ -235,7 +235,7 @@ def create_app(workspace=None):
     @app.get('/api/projects/{project_id}/results')
     def results_api(project_id): return get_project_results(get_project(project_id))
 
-    @app.get('/projects/{project_id}/artifacts/{artifact_path:path')
+    @app.get('/projects/{project_id}/artifacts/{artifact_path:path}')
     def artifact(project_id, artifact_path):
         try: path=resolve_project_artifact(get_project(project_id),artifact_path)
         except (ValueError,FileNotFoundError) as exc: raise HTTPException(status_code=400,detail=str(exc))
