@@ -80,6 +80,34 @@ def _activity(project):
     return values
 
 
+def _plip_rows(project, cid):
+    """Recover detailed distances from already-saved PLIP XML, without re-running PLIP.
+
+    Never replace the original normalized file. Only use the XML reparse when
+    its residue/type inventory matches that of the recorded PLIP CSV.
+    """
+    original_path = project / "analysis" / f"interactions_plip_{cid}.csv"
+    original = _csv(original_path)
+    report_dir = project / "analysis" / f"plip_{cid}" / "plip"
+    xml_files = sorted(report_dir.rglob("*_report.xml")) if report_dir.is_dir() else []
+    if not xml_files:
+        return original, None
+    try:
+        from .plip_runner import normalize_plip_interactions
+        detail_path = project / "analysis" / f"interactions_detailed_{cid}.csv"
+        pose_id = original[0].get("pose_id", "") if original else ""
+        normalize_plip_interactions(xml_files, detail_path, compound_id=cid, pose_id=pose_id)
+        recovered = _csv(detail_path)
+        fields = ("interaction_type", "protein_chain", "protein_residue_name", "protein_residue_number")
+        def signature(rows):
+            return Counter(tuple((row.get(field) or "").strip() for field in fields) for row in rows)
+        if original and signature(recovered) != signature(original):
+            return original, "PLIP_XML_RECORDS_DIFFER_FROM_ORIGINAL_CSV"
+        return recovered, None
+    except (OSError, ValueError, RuntimeError) as exc:
+        return original, f"PLIP_XML_RECONSTRUCTION_FAILED: {exc}"
+
+
 def build_summary(project):
     project = Path(project).resolve()
     evidence_path = project / "analysis/evidence.json"
@@ -93,8 +121,21 @@ def build_summary(project):
         if not cid:
             continue
         plip_path = project / "analysis" / f"interactions_plip_{cid}.csv"
-        interactions = _csv(plip_path)
+        interactions, plip_warning = _plip_rows(project, cid)
         grouped = {}
+        interaction_details = []
+        for row in interactions:
+            kind = (row.get("interaction_type") or "").strip()
+            if kind:
+                interaction_details.append({
+                    "type": kind,
+                    "residue": _residue(row),
+                    "protein_atom": row.get("protein_atom") or None,
+                    "ligand_atom": row.get("ligand_atom") or None,
+                    "distance_A": _num(row.get("distance_A")),
+                    "angle_deg": _num(row.get("angle_deg")),
+                    "PLIP_source": row.get("PLIP_source") or None,
+                })
         for row in interactions:
             kind = (row.get("interaction_type") or "").strip()
             residue = _residue(row)
@@ -119,6 +160,8 @@ def build_summary(project):
             "counted_cluster_poses": counted,
             "largest_cluster_percentage": 100 * largest / counted if counted and largest is not None else None,
             "plip_available": plip_path.is_file(),
+            "plip_warning": plip_warning,
+            "interaction_details": interaction_details,
             "plip_counts": counts,
             "residues_by_interaction": {key: [{"residue": residue, "count": n} for residue, n in counter.most_common()]
                                         for key, counter in sorted(grouped.items())},
@@ -219,11 +262,30 @@ def draft_markdown(summary):
         else:
             for kind, entries in row["residues_by_interaction"].items():
                 lines.append("- " + kind + ": " + ", ".join(x["residue"] + f" ({x['count']})" for x in entries) + ".")
+        if row.get("plip_warning"):
+            lines.append("- Data warning: " + row["plip_warning"] + ".")
+        if row["interaction_details"]:
+            lines.extend(["", "| Interaction | Protein residue | Protein atom | Ligand atom | Distance (Angstrom) | Angle (degrees) |",
+                          "|---|---|---|---|---:|---:|"])
+            for contact in row["interaction_details"]:
+                # Missing geometry must be explicit; different types use
+                # different distance definitions (see interpretation below).
+                lines.append("| " + " | ".join([
+                    contact["type"], contact["residue"] or "NA",
+                    str(contact["protein_atom"] or "NA"),
+                    str(contact["ligand_atom"] or "NA"),
+                    _fmt(contact["distance_A"]), _fmt(contact["angle_deg"], 1)
+                ]) + " |")
+            lines.append("")
         if row["counted_cluster_poses"]:
             lines.append("- Largest cluster population: " + str(row["largest_cluster_population"]) +
                          " of " + str(row["counted_cluster_poses"]) + " counted poses (" +
                          _fmt(row["largest_cluster_percentage"], 1) + "%).")
         lines.append("")
+    lines.extend(["PLIP distance definitions: for hydrogen bonds, donor-to-acceptor heavy-atom separation; "
+                  "for hydrophobic contacts, interacting-atom distance; for pi-stacking, aromatic-ring centroid distance; "
+                  "for salt bridges, distance between charge centers. NA means the relevant geometry was not "
+                  "recorded in the available PLIP artifact. Do not replace NA with a typical or calculated value.", ""])
     stats = summary["activity_correlation"]
     lines.extend(["## Experimental activity comparison", ""])
     if stats["pearson_r"] is not None:
