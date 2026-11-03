@@ -13,7 +13,7 @@ VALIDATION_MODES = ("required", "if_available", "skip")
 
 DEFAULT_CONFIG = {
     "reference": {"ligand": None, "remote_enrichment": False},
-    "validation": {"mode": "if_available", "rmsd_threshold": 2.0, "ga_runs": 10},
+    "validation": {"mode": "required", "rmsd_threshold": 2.0, "ga_runs": 10},
     "docking": {"population_size": 150, "evaluations": 2500000, "generations": 27000,
                  "mutation_rate": 0.02, "crossover_rate": 0.8, "local_search_frequency": 0.26},
     "interaction": {"primary_engine": "plip"},
@@ -46,7 +46,7 @@ def write_default_config(path: Path = Path("sidock.yaml")) -> None:
 
 def validate_config(config: dict) -> list[str]:
     errors = []
-    mode=str(config["validation"].get("mode", "if_available")).lower()
+    mode=str(config["validation"].get("mode", "required")).lower()
     if mode not in VALIDATION_MODES:
         errors.append("validation.mode must be one of: required, if_available, skip")
     if config["validation"]["rmsd_threshold"] <= 0: errors.append("validation.rmsd_threshold must be positive")
@@ -59,7 +59,7 @@ def validate_config(config: dict) -> list[str]:
 def summary(config: dict) -> str:
     d = config["docking"]
     return ("SIDock Ubuntu v0.4.0\n"
-            f"Validation mode: {config['validation'].get('mode','if_available')}\n"
+            f"Validation mode: {config['validation'].get('mode','required')}\n"
             f"Validation RMSD: <={config['validation']['rmsd_threshold']:.1f} Å\n"
             f"GA runs: {config['validation']['ga_runs']}\n"
             f"Population: {d['population_size']}\n"
