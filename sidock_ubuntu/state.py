@@ -121,7 +121,9 @@ def derived_project_status(state: dict) -> str:
         if stored in {'COMPLETE','COMPLETE_WITH_WARNINGS','PARTIAL','BLOCKED','STALE'}: return stored
     if stages.get('VALIDATION', {}).get('status') in {'FAIL', 'BLOCKED'}: return 'BLOCKED'
     final = stages.get('FINALIZATION', {}).get('status')
-    if final == 'PASS' and all(stages.get(x, {}).get('status') == 'PASS' for x in ('REFERENCE','RECEPTOR','GRID','VALIDATION','LIGAND_PREPARATION','DOCKING','POSE_EXTRACTION','CLUSTERING','PLIP','FIGURES')):
-        return 'COMPLETE'
+    required=('REFERENCE','RECEPTOR','GRID','VALIDATION','LIGAND_PREPARATION','DOCKING','POSE_EXTRACTION','CLUSTERING','PLIP','FIGURES')
+    if final == 'PASS' and all(stages.get(x, {}).get('status') == 'PASS' for x in required):
+        validation_warnings=stages.get('VALIDATION',{}).get('warnings',[]) or []
+        return 'COMPLETE_WITH_WARNINGS' if 'UNVALIDATED_DOCKING' in validation_warnings else 'COMPLETE'
     if any(v.get('status') == 'FAIL' for v in stages.values() if isinstance(v, dict)): return 'FAILED'
     return 'INCOMPLETE'
