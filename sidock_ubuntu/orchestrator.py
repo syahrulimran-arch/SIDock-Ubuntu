@@ -39,19 +39,25 @@ class StageRunner:
         return max(1,int((self.config or {}).get('docking',{}).get('ga_runs',10)))
 
     def _parallel_workers(self, compound_count: int) -> int:
-        value=(self.config or {}).get('docking',{}).get('parallel_jobs','auto')
+        docking=(self.config or {}).get('docking',{})
+        value=docking.get('parallel_jobs','auto')
         detected=available_cpu_count()
+        try: ceiling=max(1,int(docking.get('max_parallel_jobs',10)))
+        except (TypeError,ValueError): ceiling=10
         if str(value).lower()=='auto': workers=detected
         else:
             try: workers=max(1,int(value))
             except (TypeError,ValueError): workers=detected
-        return max(1,min(workers,detected,max(1,compound_count)))
+        return max(1,min(workers,ceiling,detected,max(1,compound_count)))
 
     def _write_execution_settings(self, compound_count: int) -> dict:
         detected=available_cpu_count(); workers=self._parallel_workers(compound_count)
+        try: ceiling=max(1,int((self.config or {}).get('docking',{}).get('max_parallel_jobs',10)))
+        except (TypeError,ValueError): ceiling=10
         payload={
             'detected_cpus':detected,
             'configured_parallel_jobs':(self.config or {}).get('docking',{}).get('parallel_jobs','auto'),
+            'max_parallel_jobs':ceiling,
             'effective_parallel_workers':workers,
             'compound_count':compound_count,
             'ga_runs_per_compound':self._docking_ga_runs(),
