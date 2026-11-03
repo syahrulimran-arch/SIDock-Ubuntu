@@ -265,7 +265,7 @@ def draft_markdown(summary):
         if row.get("plip_warning"):
             lines.append("- Data warning: " + row["plip_warning"] + ".")
         if row["interaction_details"]:
-            lines.extend(["", "| Interaction | Protein residue | Protein atom | Ligand atom | Distance (Angstrom) | Angle (degrees) |",
+            lines.extend(["", "| Interaction | Protein residue | Protein atom index | Ligand atom index | Distance (Angstrom) | Angle (degrees) |",
                           "|---|---|---|---|---:|---:|"])
             for contact in row["interaction_details"]:
                 # Missing geometry must be explicit; different types use
@@ -328,7 +328,7 @@ def _html(markdown):
             if not table:
                 parts.append("<table>")
                 table = True
-            tag = "th" if columns[0] == "Compound" else "td"
+            tag = "th" if columns[0] in {"Compound", "Interaction"} else "td"
             parts.append("<tr>" + "".join("<" + tag + ">" + html.escape(c) + "</" + tag + ">" for c in columns) + "</tr>")
             continue
         if table:
