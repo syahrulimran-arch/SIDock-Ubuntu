@@ -1,2 +1,0 @@
-{"timestamp": "2026-11-03T06:52:06.591455+00:00", "scope": "GLOBAL", "compound": null, "stage": "REFERENCE", "attempt": 1, "executor": "<lambda>", "status": "FAIL", "duration": 0.014803171157836914, "error_code": "E999"}
-{"timestamp": "2026-11-03T06:53:12.606775+00:00", "scope": "GLOBAL", "compound": null, "stage": "REFERENCE", "attempt": 2, "executor": "<lambda>", "status": "FAIL", "duration": 0.012646913528442383, "error_code": "E999"}

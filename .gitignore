@@ -8,6 +8,7 @@ dist/
 *.egg-info/
 sidock_project/
 *_project/
+sidock_projects/
 
 # Generated docking projects and scientific outputs
 integration_test/
