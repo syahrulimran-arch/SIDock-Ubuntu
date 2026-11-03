@@ -284,6 +284,7 @@ def _persist_global_result(ctx: ProductionContext, name: str, result: StageResul
     elif name=='finalization':
         from .finalization_outputs import FinalizationStageOutput, save_finalization_output
         paths=[Path(out['results_csv']),Path(out['evidence_json']),Path(out['report_html'])]
+        paths.extend(path for path in (p/'analysis/scientific_report.md',p/'analysis/scientific_report.html',p/'analysis/scientific_report.json') if path.is_file())
         arts=[{'path':str(x.relative_to(p)),'sha256':__import__('hashlib').sha256(x.read_bytes()).hexdigest()} for x in paths]
         value=FinalizationStageOutput(str(paths[0].relative_to(p)),str(paths[1].relative_to(p)),str(paths[2].relative_to(p)),out.get('project_status','PENDING'),[],arts)
         meta=save_finalization_output(p,value); update_state(p,'FINALIZATION',result.status,outputs={str(meta):artifact(p,meta).sha256},result_metadata=str(meta.relative_to(p)))
