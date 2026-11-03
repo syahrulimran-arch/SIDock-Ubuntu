@@ -97,9 +97,16 @@ def create_app(workspace=None):
     def detail(project_id):
         data=project_view(get_project(project_id)); import html as h
         state=data['state']; final=derived_project_status(state); counts=data.get('reference',{}); dash=data['dashboard']
-        action=(f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>{h.escape(dash['primary_action'])}</button></form>" if dash['primary_action'] in {'RUN','RESUME'} else f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>")
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation: {h.escape(str(dash['validation_status']))}</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
-        if final=='BLOCKED': body += '<p class="error">Native redocking validation failed; compound docking was not performed.</p>'
+        if dash['primary_action']=='RUN':
+            policy=dash.get('validation_policy','if_available')
+            options=''.join(f"<option value='{value}'{' selected' if value==policy else ''}>{label}</option>" for value,label in (('if_available','Validate if available (continue as unvalidated if RMSD fails)'),('required','Require native validation (RMSD ≤ 2 Å)'),('skip','Skip native redocking validation')))
+            action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><label>Validation policy <select name='validation_mode'>{options}</select></label><small>Skipping or accepting failed validation marks the docking results as UNVALIDATED.</small><br><button type='submit'>RUN</button></form>"
+        elif dash['primary_action']=='RESUME':
+            action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>RESUME</button></form>"
+        else:
+            action=f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>"
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','if_available')))}</b></p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        if final=='BLOCKED': body += '<p class="error">Strict native redocking validation blocked compound docking.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
     @app.get('/projects/{project_id}/status')
@@ -161,9 +168,9 @@ def create_app(workspace=None):
         try: return set_reference_override(get_project(project_id), instance)
         except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc))
     @app.post('/projects/{project_id}/run')
-    def run(project_id, request: Request):
+    def run(project_id, request: Request, validation_mode: str=Form('if_available')):
         try:
-            result=start_run(get_project(project_id))
+            result=start_run(get_project(project_id), validation_mode=validation_mode)
             if 'text/html' in request.headers.get('accept','') or request.headers.get('content-type','').startswith('application/x-www-form-urlencoded'):
                 from fastapi.responses import RedirectResponse
                 return RedirectResponse(f'/projects/{project_id}',status_code=303)
@@ -211,12 +218,13 @@ def create_app(workspace=None):
     def results_page(project_id):
         data=get_project_results(get_project(project_id)); import html as _html
         validation=data['validation']; counts=data['compound_counts']; blocked='';
-        if data['project_status']=='BLOCKED': blocked='<p><b>Native redocking validation failed; compound docking was not performed.</b></p>'
+        if data['project_status']=='BLOCKED': blocked='<p><b>Strict native redocking validation failed; compound docking was not performed.</b></p>'
+        elif validation.get('docking_validation_status')=='UNVALIDATED': blocked='<p><b>UNVALIDATED DOCKING:</b> native redocking was skipped or did not satisfy the validation criterion. Interpret docking poses and energies as exploratory predictions.</p>'
         links=[]
         for rel,label in (('results.csv','results.csv'),('analysis/evidence.json','evidence.json'),('report.html','report.html')):
             if (get_project(project_id)/rel).is_file(): links.append(f"<a href='/projects/{project_id}/artifacts/{rel}'>{label}</a>")
         empty='' if links else '<p>Final results are not available yet.</p>'
-        return page('Results - '+project_id,f"<h1>Results</h1><p>Project status: <b>{_html.escape(str(data['project_status']))}</b></p>{blocked}<p>Validation: {_html.escape(str(validation.get('sampling_result','Not run yet')))}; RMSD {_html.escape(str(validation.get('native_redocking_RMSD_A','Unavailable')))}; threshold {_html.escape(str(validation.get('rmsd_threshold','Unavailable')))}</p><p>Counts: {_html.escape(str(counts))}</p>{empty}{' | '.join(links)}")
+        return page('Results - '+project_id,f"<h1>Results</h1><p>Project status: <b>{_html.escape(str(data['project_status']))}</b></p>{blocked}<p>Validation policy: {_html.escape(str(validation.get('validation_policy','Unavailable')))}; validation status: {_html.escape(str(validation.get('docking_validation_status','Not run yet')))}; native result: {_html.escape(str(validation.get('sampling_result','Not run yet')))}; RMSD {_html.escape(str(validation.get('native_redocking_RMSD_A','Unavailable')))}; threshold {_html.escape(str(validation.get('rmsd_threshold','Unavailable')))}</p><p>Counts: {_html.escape(str(counts))}</p>{empty}{' | '.join(links)}")
 
     @app.get('/api/projects/{project_id}/results')
     def results_api(project_id): return get_project_results(get_project(project_id))
