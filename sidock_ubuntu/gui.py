@@ -227,7 +227,7 @@ def create_app(workspace=None):
         if data['project_status']=='BLOCKED': blocked='<p><b>Strict native redocking validation failed; compound docking was not performed.</b></p>'
         elif validation.get('docking_validation_status')=='UNVALIDATED': blocked='<p><b>UNVALIDATED DOCKING:</b> native redocking was skipped or did not satisfy the validation criterion. Interpret docking poses and energies as exploratory predictions.</p>'
         links=[]
-        for rel,label in (('results.csv','results.csv'),('analysis/evidence.json','evidence.json'),('report.html','report.html')):
+        for rel,label in (('results.csv','results.csv'),('analysis/evidence.json','evidence.json'),('report.html','report.html'),('analysis/scientific_report.html','Scientific analysis and write-up'),('analysis/scientific_report.md','Editable write-up'),('analysis/scientific_report.json','Analysis JSON')):
             if (get_project(project_id)/rel).is_file(): links.append(f"<a href='/projects/{project_id}/artifacts/{rel}'>{label}</a>")
         empty='' if links else '<p>Final results are not available yet.</p>'
         return page('Results - '+project_id,f"<h1>Results</h1><p>Project status: <b>{_html.escape(str(data['project_status']))}</b></p>{blocked}<p>Validation policy: {_html.escape(str(validation.get('validation_policy','Unavailable')))}; validation status: {_html.escape(str(validation.get('docking_validation_status','Not run yet')))}; native result: {_html.escape(str(validation.get('sampling_result','Not run yet')))}; RMSD {_html.escape(str(validation.get('native_redocking_RMSD_A','Unavailable')))}; threshold {_html.escape(str(validation.get('rmsd_threshold','Unavailable')))}</p><p>Counts: {_html.escape(str(counts))}</p>{empty}{' | '.join(links)}")
