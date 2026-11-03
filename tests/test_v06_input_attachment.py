@@ -1,8 +1,28 @@
 import json
 import pytest
 
-from sidock_ubuntu.gui_service import attach_project_inputs, create_project, dashboard_view
-from tests.test_gui_foundation import fixture_inputs
+from sidock_ubuntu.gui_service import attach_project_inputs, create_project
+
+
+def fixture_inputs(tmp_path):
+    """Create the minimal receptor/SDF pair needed by these attachment tests.
+
+    Keep this helper local so the test module does not depend on ``tests`` being
+    installed or importable as a Python package.
+    """
+    pdb = tmp_path/'protein.pdb'
+    pdb.write_text('ATOM\n')
+    sdf = tmp_path/'compounds.sdf'
+    sdf.write_text(
+        'minimal\n'
+        '  SIDock\n'
+        '\n'
+        '  1  0  0  0  0  0  0  0  0  0999 V2000\n'
+        '    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n'
+        'M  END\n'
+        '$$$$\n'
+    )
+    return pdb, sdf
 
 
 def test_existing_project_inputs_are_replaced_and_dependents_staled(tmp_path):
