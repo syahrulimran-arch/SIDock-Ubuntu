@@ -22,6 +22,13 @@ class StageRunner:
         mode=str((self.config or {}).get('validation',{}).get('mode','if_available')).lower()
         return mode if mode in {'required','if_available','skip'} else 'if_available'
 
+    def _read_validation_policy(self) -> str | None:
+        try:
+            mode=str(json.loads((self.project/'provenance'/'validation_policy.json').read_text(encoding='utf-8')).get('mode','')).lower()
+            return mode if mode in {'required','if_available','skip'} else None
+        except Exception:
+            return None
+
     def _write_validation_policy(self, mode: str) -> None:
         path=self.project/'provenance'/'validation_policy.json'; path.parent.mkdir(parents=True,exist_ok=True)
         payload={'mode':mode,'rmsd_threshold':(self.config or {}).get('validation',{}).get('rmsd_threshold',2.0)}
@@ -61,9 +68,11 @@ class StageRunner:
             if dep and dep not in passed and state.get('stages',{}).get(dep,{}).get('status')!='PASS':
                 update_state(self.project,stage,'BLOCKED',errors=[f'DEPENDENCY_{dep}']); results.append((stage,'BLOCKED')); break
 
+            previous_validation_policy=None
             if stage=='VALIDATION':
-                mode=self._validation_mode(); self._write_validation_policy(mode)
+                mode=self._validation_mode(); previous_validation_policy=self._read_validation_policy()
                 if mode=='skip':
+                    self._write_validation_policy(mode)
                     started=time.time(); self._persist_skipped_validation()
                     trace_path=self.project/'provenance/execution_trace.jsonl'; prior=0
                     if trace_path.exists():
@@ -87,13 +96,10 @@ class StageRunner:
                 except (FileNotFoundError, ValueError, TypeError):
                     reusable=False
             if reusable and stage=='VALIDATION':
-                try:
-                    prior_policy=json.loads((self.project/'provenance'/'validation_policy.json').read_text(encoding='utf-8')).get('mode')
-                    reusable=prior_policy==self._validation_mode()
-                except Exception:
-                    reusable=False
+                reusable=previous_validation_policy==self._validation_mode()
             if reusable and not downstream_dirty:
                 passed.add(stage); results.append((stage,'REUSED')); continue
+            if stage=='VALIDATION': self._write_validation_policy(self._validation_mode())
             fn=self.executors.get(stage.lower()) or self.executors.get(stage)
             if fn is None: update_state(self.project,stage,'BLOCKED',errors=['MISSING_EXECUTOR']); results.append((stage,'BLOCKED')); break
             started=time.time(); update_state(self.project,stage,'RUNNING')
