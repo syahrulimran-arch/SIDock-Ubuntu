@@ -38,6 +38,8 @@ def write_dashboard(project: Path) -> Path:
     out = project / "report.html"
     content=("<!doctype html><meta charset='utf-8'><title>SIDock project dashboard</title><style>body{font:15px system-ui;max-width:1000px;margin:40px auto;color:#243047}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd;padding:8px;text-align:left}code{background:#eef;padding:2px 5px}</style>" +
              f"<h1>SIDock Ubuntu project dashboard</h1><p><b>Target:</b> {html.escape(str(_display(target.get('pdb'))))}<br><b>Reference:</b> {html.escape(str(_display(target.get('reference_ligand'))))}<br><b>Validation:</b> {html.escape(str(_display(validation.get('sampling_result'))))}; RMSD {html.escape(str(_display(validation.get('native_redocking_RMSD_A'),'unavailable')))} Å</p><table><tr><th>Compound</th><th>Status</th><th>Docking energy</th><th>Clusters</th><th>PLIP interactions</th></tr>{''.join(rows)}</table>")
+    if (project/'analysis'/'scientific_report.html').is_file():
+        content += "<p><a href='analysis/scientific_report.html'>Scientific analysis and draft write-up</a></p>"
     if validation.get('sampling_result') == 'FAIL':
         rmsd = html.escape(str(_display(validation.get('native_redocking_RMSD_A'), 'unavailable')))
         threshold = html.escape(str(_display(validation.get('rmsd_threshold'), 'unavailable')))
