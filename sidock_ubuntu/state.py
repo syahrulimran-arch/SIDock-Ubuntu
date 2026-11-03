@@ -91,11 +91,12 @@ def update_state(project: Path, stage: str, status: str, *, inputs=None, outputs
         return state
 
 def project_status(project: Path) -> dict:
-    state_path = project / "project_state.json"
-    if state_path.exists(): return json.loads(state_path.read_text())
-    result = {"stages": {}, "updated": None}
-    for stage in STAGES: result["stages"][stage] = {"status": "PENDING"}
-    return result
+    with _STATE_LOCK:
+        state_path = project / "project_state.json"
+        if state_path.exists(): return json.loads(state_path.read_text())
+        result = {"stages": {}, "updated": None}
+        for stage in STAGES: result["stages"][stage] = {"status": "PENDING"}
+        return result
 
 def aggregate_compound_stage_status(state: dict, stage: str) -> str:
     """Derive a project-level compound-stage status without creating attempts."""
