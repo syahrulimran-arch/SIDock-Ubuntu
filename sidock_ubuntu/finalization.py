@@ -5,7 +5,7 @@ import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 from .state import project_status
-from .analysis import parse_dlg_models
+from .analysis import parse_dlg_models, parse_dlg_clusters
 from .stage_outputs import load_validation_output, load_reference_output, load_receptor_output, load_grid_output
 
 @dataclass
@@ -38,6 +38,40 @@ def _validation_policy(project: Path) -> str:
         mode='required'
     return mode if mode in {'required','if_available','skip'} else 'required'
 
+def _target_summary(project: Path, outputs: dict) -> dict:
+    """Recover receptor and reference identity from persisted project metadata."""
+    pdb_id=None; receptor_source=None
+    try:
+        project_data=json.loads((project/'project.json').read_text(encoding='utf-8'))
+        receptor_source=project_data.get('receptor_source')
+    except Exception:
+        project_data={}
+    try:
+        gui=json.loads((project/'gui_inputs.json').read_text(encoding='utf-8'))
+        pdb_id=gui.get('pdb_id') or None
+    except Exception:
+        pass
+    ref=outputs.get('reference')
+    selected=getattr(ref,'selected_ligand',None) if ref is not None else None
+    if not selected:
+        for candidate in (project/'validation'/'reference_selection.json', project/'validation'/'reference_ligand_resolution.json'):
+            try:
+                data=json.loads(candidate.read_text(encoding='utf-8'))
+                selected=data.get('selected_instance') or data.get('selected_ligand') or data.get('reference_ligand')
+                if selected: break
+            except Exception:
+                continue
+    receptor_label=pdb_id or (Path(receptor_source).name if receptor_source else None)
+    return {
+        'pdb': receptor_label,
+        'pdb_id': pdb_id,
+        'receptor_source': receptor_source,
+        'reference_ligand': selected,
+        'reference_residue_name': getattr(ref,'residue_name',None) if ref is not None else None,
+        'reference_chain': getattr(ref,'chain',None) if ref is not None else None,
+        'reference_residue_number': getattr(ref,'residue_number',None) if ref is not None else None,
+    }
+
 def load_finalization_input(project: Path) -> ProjectResultSnapshot:
     state=project_status(project); compounds=[]
     for cid, stages in state.get('compounds',{}).items():
@@ -58,6 +92,23 @@ def load_finalization_input(project: Path) -> ProjectResultSnapshot:
     elif compounds and all(all(s.get('status')=='PASS' for s in c.stages.values() if isinstance(s,dict)) for c in compounds): status='COMPLETE_WITH_WARNINGS' if unvalidated else 'COMPLETE'
     else: status='PENDING'
     return ProjectResultSnapshot(project,outputs,compounds,warnings,status)
+
+def _cluster_rows(project: Path, cid: str) -> list[dict]:
+    """Load per-compound cluster evidence, falling back to immutable DLG parsing."""
+    candidates=(project/'analysis'/f'clusters_{cid}.csv', project/'analysis'/'clusters.csv')
+    for path in candidates:
+        if not path.exists(): continue
+        try:
+            with path.open(newline='',encoding='utf-8') as fh:
+                rows=[r for r in csv.DictReader(fh) if r.get('ligand')==cid]
+            if rows: return rows
+        except (OSError,csv.Error):
+            pass
+    dlg=project/'docking'/'dlg'/f'{cid}.dlg'
+    if dlg.exists():
+        try: return parse_dlg_clusters(dlg)
+        except (OSError,ValueError,TypeError): return []
+    return []
 
 def _disk_compound_summary(project: Path, cid: str, stages: dict) -> dict:
     """Reconstruct the canonical summary solely from persisted stage artifacts."""
@@ -81,19 +132,21 @@ def _disk_compound_summary(project: Path, cid: str, stages: dict) -> dict:
                 out['lowest_docking_energy']=float(best['energy'])
                 pose=project/'analysis'/'poses'/f"{cid}_model_{best['model']}.pdbqt"
                 out['selected_pose']=str(pose) if pose.exists() else None
-    clusters = project/'analysis'/'clusters.csv'
-    if clusters.exists():
-        rows=[]
-        with clusters.open(newline='', encoding='utf-8') as fh:
-            rows=[r for r in csv.DictReader(fh) if r.get('ligand') == cid]
-        if rows:
-            out['cluster_count'] = len(rows)
-            out['largest_cluster_population'] = max(int(r['cluster_size']) for r in rows)
+    rows=_cluster_rows(project,cid)
+    if rows:
+        out['cluster_count']=len(rows)
+        sizes=[]
+        for r in rows:
+            try: sizes.append(int(r.get('cluster_size',0)))
+            except (TypeError,ValueError): pass
+        out['largest_cluster_population']=max(sizes) if sizes else None
     plip = project/'analysis'/f'interactions_plip_{cid}.csv'
     if plip.exists() and stages.get('plip',{}).get('status') == 'PASS':
         counts={}
         with plip.open(newline='', encoding='utf-8') as fh:
-            for row in csv.DictReader(fh): counts[row.get('interaction_type','')] = counts.get(row.get('interaction_type',''),0)+1
+            for row in csv.DictReader(fh):
+                kind=(row.get('interaction_type') or '').strip()
+                if kind: counts[kind]=counts.get(kind,0)+1
         out.update({'PLIP_H_bonds': counts.get('hydrogen_bond',0),
                     'PLIP_hydrophobic': counts.get('hydrophobic',0),
                     'PLIP_pi_stack': counts.get('pi-stack',0),
@@ -103,9 +156,8 @@ def _disk_compound_summary(project: Path, cid: str, stages: dict) -> dict:
 def snapshot_evidence(snapshot: ProjectResultSnapshot) -> dict:
     compounds=[]
     for c in snapshot.compounds:
-        stages=c.stages; plip=stages.get('plip',{}); docking=stages.get('docking',{}); pose=stages.get('pose_extraction',{}); cluster=stages.get('clustering',{})
+        stages=c.stages
         disk=_disk_compound_summary(snapshot.project, c.compound_id, stages)
-        plip_ok=plip.get('status')=='PASS'
         if snapshot.status=='BLOCKED': compound_status='BLOCKED'
         else: compound_status=('COMPLETE' if all(s.get('status')=='PASS' for s in stages.values() if isinstance(s,dict)) else 'FAILED')
         compounds.append({'compound_id':c.compound_id,'status':compound_status,**({k:None for k in disk} if compound_status=='BLOCKED' else disk),'warnings':c.warnings,'errors':c.errors})
@@ -120,4 +172,9 @@ def snapshot_evidence(snapshot: ProjectResultSnapshot) -> dict:
          'validation_policy':mode,
          'docking_validation_status':docking_validation_status}
     blocked_reason='NATIVE_REDOCKING_RMSD_THRESHOLD' if snapshot.status=='BLOCKED' else None
-    return {'schema_version':'0.4','project_status':snapshot.status,'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY','validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,'blocked_reason':blocked_reason,'compounds':compounds,'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
+    return {'schema_version':'0.6','project_status':snapshot.status,
+            'target':_target_summary(snapshot.project,snapshot.global_outputs),
+            'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY',
+            'validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,
+            'blocked_reason':blocked_reason,'compounds':compounds,
+            'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
