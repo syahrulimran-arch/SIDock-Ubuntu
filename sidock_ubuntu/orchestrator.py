@@ -129,47 +129,69 @@ class StageRunner:
             result[compound]=[s for s in COMPOUND_STAGES if (not failed_only or rec.get(s,{}).get('status') in {'FAIL','BLOCKED'}) and (force or rec.get(s,{}).get('status','PENDING')!='PASS')]
         return result
 
-    def _run_compound_unlocked(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
-        state=project_status(self.project); rec=state.get('compounds',{}).get(compound)
-        if rec is None: return [('compound','MISSING')]
+    def _validation_allows_compounds(self) -> bool:
+        state=project_status(self.project)
         global_validation=state.get('stages',{}).get('VALIDATION'); mode=self._validation_mode()
-        # Validation execution errors still block. A scientific RMSD failure is
-        # only a hard gate in required mode; other modes preserve it as an
-        # explicit UNVALIDATED warning while allowing exploratory docking.
-        if global_validation is not None and global_validation.get('status') in {'FAIL','BLOCKED','STALE'}:
-            return [('preparation','BLOCKED')]
-        if global_validation is not None and global_validation.get('status')=='PASS' and mode!='skip':
+        if global_validation is None:
+            return True
+        if global_validation.get('status') in {'FAIL','BLOCKED','STALE'}:
+            return False
+        if global_validation.get('status')=='PASS' and mode!='skip':
             try:
                 from .stage_outputs import load_validation_output
                 validation=load_validation_output(self.project)
                 if getattr(validation,'load_status','STALE')!='VALID':
-                    return [('preparation','BLOCKED')]
+                    return False
                 if mode=='required' and validation.scientific_status!='PASS':
-                    return [('preparation','BLOCKED')]
+                    return False
             except (FileNotFoundError, ValueError, TypeError):
-                return [('preparation','BLOCKED')]
+                return False
+        return True
+
+    def _run_compound_stage_unlocked(self, compound: str, stage: str, *, force=False) -> tuple[str,str]:
+        """Execute exactly one compound stage.
+
+        This stage-level primitive lets the pipeline parallelize AutoDock jobs
+        without running shared post-processing outputs concurrently.
+        """
+        if stage not in COMPOUND_STAGES:
+            raise ValueError(f'Unknown compound stage: {stage}')
+        state=project_status(self.project); rec=state.get('compounds',{}).get(compound)
+        if rec is None: return (stage,'MISSING')
+        if not self._validation_allows_compounds(): return (stage,'BLOCKED')
+        status=rec.get(stage,{}).get('status','PENDING')
+        if status=='PASS' and not force and verify_output_hashes(self.project,rec.get(stage,{})):
+            return (stage,'REUSED')
+        if stage!='preparation':
+            prev=COMPOUND_STAGES[COMPOUND_STAGES.index(stage)-1]
+            if rec.get(prev,{}).get('status')!='PASS': return (stage,'BLOCKED')
+        fn=self.executors.get(stage)
+        if fn is None: return (stage,'BLOCKED')
+        started=time.time(); update_compound(self.project,compound,stage,'RUNNING',config=self.config)
+        try:
+            r=fn(compound); r=r if isinstance(r,StageResult) else StageResult('PASS',r or {})
+        except Exception as exc:
+            r=StageResult('FAIL',error_code='E999',error_message=str(exc))
+        update_compound(self.project,compound,stage,r.status,config=self.config,outputs=r.outputs,error_code=r.error_code,error_message=r.error_message)
+        self._trace('COMPOUND',stage,r.status,compound=compound,error_code=r.error_code,started=started)
+        return (stage,r.status)
+
+    def _run_compound_unlocked(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
+        state=project_status(self.project); rec=state.get('compounds',{}).get(compound)
+        if rec is None: return [('compound','MISSING')]
+        if not self._validation_allows_compounds(): return [('preparation','BLOCKED')]
         result=[]
         for stage in COMPOUND_STAGES:
+            rec=project_status(self.project).get('compounds',{}).get(compound,{})
             status=rec.get(stage,{}).get('status','PENDING')
             if failed_only and status not in {'FAIL','BLOCKED'}: continue
-            if status=='PASS' and not force and verify_output_hashes(self.project,rec.get(stage,{})): continue
-            if stage!='preparation':
-                prev=COMPOUND_STAGES[COMPOUND_STAGES.index(stage)-1]
-                if rec.get(prev,{}).get('status')!='PASS': result.append((stage,'BLOCKED')); break
-            fn=self.executors.get(stage)
-            if fn is None: result.append((stage,'BLOCKED')); break
-            update_compound(self.project,compound,stage,'RUNNING',config=self.config)
-            try:
-                r=fn(compound); r=r if isinstance(r,StageResult) else StageResult('PASS',r or {})
-            except Exception as exc: r=StageResult('FAIL',error_code='E999',error_message=str(exc))
-            update_compound(self.project,compound,stage,r.status,config=self.config,outputs=r.outputs,error_code=r.error_code,error_message=r.error_message)
-            result.append((stage,r.status)); rec=project_status(self.project)['compounds'][compound]
-            self._trace('COMPOUND',stage,r.status,compound=compound,error_code=r.error_code,started=None)
-            if r.status!='PASS': break
+            outcome=self._run_compound_stage_unlocked(compound,stage,force=force)
+            if outcome[1]!='REUSED': result.append(outcome)
+            if outcome[1] not in {'PASS','REUSED'}: break
         return result
 
     def run_compound(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
-        from .project_lock import project_execution_lock, ProjectExecutionLocked
+        from .project_lock import project_execution_lock
         with project_execution_lock(self.project, {'interface':'CLI','action':'COMPOUND','compound_id':compound}):
             return self._run_compound_unlocked(compound,failed_only=failed_only,force=force)
 
@@ -179,7 +201,7 @@ def config_change_audit(project: Path, old: dict, new: dict) -> dict:
     changes={}; invalid=[]
     for stage in owners:
         a,b=config_hash(old,stage),config_hash(new,stage)
-        if a!=b: changes[stage]={'old_hash':a,'new_hash':b}; invalid.append(stage)
+        if a!=b: changes[stage]={'old_hash':a,'new_hash':new}; invalid.append(stage)
     expanded=[]
     for stage in invalid:
         for name in names[names.index(stage):]:
