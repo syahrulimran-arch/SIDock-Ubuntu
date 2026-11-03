@@ -1,4 +1,4 @@
-PDB,ligand,resolution,heavy_atoms,rotatable_bonds,GA_runs,minimum_RMSD,lowest_energy_RMSD,native_like_count,total_runs,sampling_result,ranking_result,PLIP_status
-2GQG,1N1,2.4,33,7,20,1.485,5.37,2,20,SAMPLING_PASS,RANKING_UNRESOLVED,NOT_RELIABLE; ligand not recognized in corrected export
-1IEP,STI,2.1,,,,,,,,NOT_RUN,NOT_RUN,NOT_RUN
-1M17,AQ4,2.6,,,,,,,,NOT_RUN,NOT_RUN,NOT_RUN
+PDB,protein,ligand,resolution_A,heavy_atoms,rotatable_bonds,GA_runs,minimum_RMSD_A,lowest_energy_RMSD_A,native_like_poses,total_poses,minimum_RMSD_energy,minimum_RMSD_energy_rank,lowest_energy,clusters,sampling_result,ranking_status,PLIP_recognized,crystal_H_bonds,crystal_hydrophobic,minimum_RMSD_H_bonds,minimum_RMSD_hydrophobic,H_bond_retention,hydrophobic_retention,interaction_pipeline_status,failure_classification,notes
+2GQG,ABL kinase,1N1,2.4,33,7,20,1.4846,5.3695,2,20,-9.06,12,-11.61,7,SAMPLING_PASS,NATIVE_LIKE_SAMPLED_NOT_TOP3,True,11,15,10,15,not_residue_mapped,not_residue_mapped,PROVISIONAL_SIDOCK_SECONDARY_PLIP_PRIMARY,NONE_SAMPLING_PASS,Native-like pose sampled but not top 3 by energy; interaction residue cross-validation provisional.
+1IEP,c-Abl kinase,STI,2.1,37,7,20,1.4728,1.659,2,20,-12.64,1,-12.69,10,SAMPLING_PASS,NATIVE_LIKE_TOP1,True,4,7,4,13,not_residue_mapped,not_residue_mapped,PROVISIONAL_SIDOCK_SECONDARY_PLIP_PRIMARY,NONE_SAMPLING_PASS,Native-like pose sampled and lowest-energy pose is native-like; interaction residue cross-validation provisional.
+1M17,EGFR kinase,AQ4,2.6,29,10,20,2.8338,,0,20,,,-6.0,,SAMPLING_FAIL,NO_NATIVE_LIKE_POSE,True,1,6,,,,,PROVISIONAL_SIDOCK_SECONDARY_PLIP_PRIMARY,BENCHMARK_PROTOCOL_FAILURE,"All chemistry/mapping/extraction audits pass; best of 20 poses 2.834 A, lowest-energy validation pose 7.533 A; no native-like pose <=2 A."

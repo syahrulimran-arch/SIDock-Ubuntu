@@ -5,7 +5,7 @@ from pathlib import Path
 from .gui_service import (create_project, get_compound_detail, get_compounds, get_compound_page, get_project_results,
                            get_config, get_doctor_status, get_job, get_job_history, get_project_config, get_worker_log, resolve_project_artifact, validate_config_values,
                            get_job, project_view, reconcile_jobs, resume_project, safe_project_name, input_compound_count,
-                           set_reference_override, start_run, workspace_path, validate_uploaded_inputs, MAX_UPLOAD_BYTES)
+                           set_reference_override, start_run, workspace_path, validate_uploaded_inputs, attach_project_inputs, MAX_UPLOAD_BYTES)
 from .state import project_status, derived_project_status
 
 try:
@@ -132,6 +132,30 @@ def create_app(workspace=None):
     def project_config_api(project_id): return get_project_config(get_project(project_id))
     @app.get('/projects/{project_id}/reference')
     def reference(project_id): return project_view(get_project(project_id))['reference']
+    @app.get('/projects/{project_id}/reference-inputs', response_class=HTMLResponse)
+    def reference_inputs(project_id):
+        p=get_project(project_id)
+        return page('Reference inputs', f"<h1>Reference inputs</h1><p>Attach or replace validation structure, mmCIF metadata, or CCD chemistry.</p><form method='post' enctype='multipart/form-data'><label>Validation structure <input type='file' name='validation_structure' accept='.pdb,.ent,.cif,.mmcif'></label><label>mmCIF <input type='file' name='mmcif' accept='.cif,.mmcif'></label><label>CCD JSON <input type='file' name='ccd' accept='.json,.cif'></label><button>Update reference inputs</button></form>")
+    @app.post('/projects/{project_id}/reference-inputs')
+    async def reference_inputs_update(project_id, validation_structure: UploadFile|None=File(None), mmcif: UploadFile|None=File(None), ccd: UploadFile|None=File(None)):
+        p=get_project(project_id); upload=root/'.uploads'; upload.mkdir(exist_ok=True); files=[]
+        try:
+            for item,suffix in ((validation_structure,'.pdb'),(mmcif,'.cif'),(ccd,'.json')):
+                if item is None: files.append(None); continue
+                path=upload/f'{p.name}-update-{len(files)}{suffix}'; total=0
+                with path.open('wb') as fh:
+                    while True:
+                        chunk=await item.read(1024*1024)
+                        if not chunk: break
+                        total+=len(chunk)
+                        if total>MAX_UPLOAD_BYTES: raise ValueError('E001 UPLOAD_TOO_LARGE')
+                        fh.write(chunk)
+                files.append(path)
+            attach_project_inputs(p,validation_structure=files[0],mmcif=files[1],ccd=files[2])
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(f'/projects/{project_id}',status_code=303)
+        except (ValueError,RuntimeError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
     @app.post('/projects/{project_id}/reference')
     def choose_reference(project_id, instance: str):
         try: return set_reference_override(get_project(project_id), instance)

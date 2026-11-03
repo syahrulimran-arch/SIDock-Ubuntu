@@ -1,0 +1,47 @@
+{
+  "stages": {
+    "INPUT": {
+      "status": "PENDING"
+    },
+    "REFERENCE": {
+      "status": "RUNNING",
+      "timestamp": "2026-11-03T04:27:07.496354+00:00",
+      "input_hashes": {},
+      "output_hashes": {},
+      "errors": [],
+      "warnings": []
+    },
+    "RECEPTOR": {
+      "status": "PENDING"
+    },
+    "VALIDATION": {
+      "status": "PENDING"
+    },
+    "LIGAND_PREPARATION": {
+      "status": "PENDING"
+    },
+    "GRID": {
+      "status": "PENDING"
+    },
+    "DOCKING": {
+      "status": "PENDING"
+    },
+    "POSE_EXTRACTION": {
+      "status": "PENDING"
+    },
+    "CLUSTERING": {
+      "status": "PENDING"
+    },
+    "PLIP": {
+      "status": "PENDING"
+    },
+    "FIGURES": {
+      "status": "PENDING"
+    },
+    "FINALIZATION": {
+      "status": "PENDING"
+    }
+  },
+  "compounds": {},
+  "updated": "2026-11-03T04:27:07.496373+00:00"
+}

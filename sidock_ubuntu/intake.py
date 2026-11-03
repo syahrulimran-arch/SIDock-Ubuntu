@@ -46,6 +46,18 @@ def hetero_groups(pdb: Path) -> list[HeteroGroup]:
         grouped[key].append(line)
     return [HeteroGroup(r, c, n, tuple(lines)) for (r, c, n), lines in grouped.items()]
 
+def semantic_reference_groups(pdb: Path, *, mmcif: Path | None = None) -> list[HeteroGroup]:
+    """Return candidate groups using semantic intake, including ATOM ligands."""
+    from .structure_intake import classify_structure
+    semantic = classify_structure(pdb, mmcif=mmcif)
+    wanted={(x['component'], x['chain'], x['residue_number']) for x in semantic.candidates}
+    grouped=defaultdict(list)
+    for line in Path(pdb).read_text(encoding='utf-8', errors='replace').splitlines():
+        if not line.startswith(('ATOM','HETATM')): continue
+        key=(line[17:20].strip().upper(), line[21:22].strip(), line[22:27].strip())
+        if key in wanted: grouped[key].append(line)
+    return [HeteroGroup(r,c,n,tuple(lines)) for (r,c,n),lines in grouped.items()]
+
 
 def choose_reference_ligand(pdb: Path) -> HeteroGroup | None:
     candidates = []
@@ -153,11 +165,11 @@ def write_group(group: HeteroGroup, destination: Path) -> Path:
     return destination
 
 
-def protein_intake_summary(pdb: Path) -> dict[str, object]:
+def protein_intake_summary(pdb: Path, mmcif: Path | None = None) -> dict[str, object]:
     from .structure_intake import classify_structure
     groups = hetero_groups(pdb)
     ref = choose_reference_ligand(pdb)
-    semantic=classify_structure(pdb)
+    semantic=classify_structure(pdb, mmcif=mmcif)
     return {
         "pdb": str(pdb.resolve()),
         "structure_classification": semantic.classification,

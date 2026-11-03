@@ -43,3 +43,13 @@ def test_water_only_is_apo_no_reference(tmp_path):
     result=classify_structure(p)
     assert result.classification in {'APO_NO_REFERENCE','PROCESSED_STRIPPED'}
     assert result.waters[0]['component']=='HOH'
+
+def test_local_mmcif_metadata_precedes_ambiguous_pdb(tmp_path):
+    p=tmp_path/'ambiguous.pdb'; _pdb(p, groups=[('ATOM','GLC','A',2,[(f'C{i}','C') for i in range(1,7)])])
+    cif=tmp_path/'structure.cif'
+    cif.write_text('''data_3A4A\n\nloop_\n_chem_comp.id\n_chem_comp.type\nGLC\n"non-polymer"\nCA\n"non-polymer"\nHOH\n"non-polymer"\n''')
+    result=classify_structure(p, mmcif=cif)
+    assert result.classification=='HOLO_NATIVE'
+    assert any(x['component']=='GLC' for x in result.candidates)
+    assert any(x['component']=='CA' for x in result.ions)
+    assert any(x['component']=='HOH' for x in result.waters)

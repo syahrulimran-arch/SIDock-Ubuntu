@@ -15,7 +15,7 @@ from pathlib import Path
 from .config import load_config
 from .model import DockingParameters, Project
 from .pipeline import run_stage_runner
-from .state import STAGES, project_status, derived_project_status
+from .state import STAGES, project_status, derived_project_status, invalidate_from, _atomic_write
 from .job_store import ACTIVE, create_job, load_job, update_job, project_lock, process_alive, process_identity, list_jobs
 from .project_lock import ProjectExecutionLocked, project_execution_lock
 
@@ -126,7 +126,7 @@ def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
         model = Project(str(project), str(protein_dst), ligand_source=str(sdf_dst), docking=DockingParameters())
         model.ensure_layout(); model.save()
         from .intake import protein_intake_summary
-        (project / "intake.json").write_text(json.dumps(protein_intake_summary(protein_dst), indent=2), encoding="utf-8")
+        (project / "intake.json").write_text(json.dumps(protein_intake_summary(protein_dst, mmcif=mmcif_dst), indent=2), encoding="utf-8")
         from .structure_context import structure_context
         context=structure_context(protein_dst, validation_dst)
         (project / "provenance" / "structure_context.json").write_text(json.dumps(context, indent=2), encoding="utf-8")
@@ -138,6 +138,52 @@ def create_project(workspace: Path, name: str, protein: Path, compounds: Path,
         shutil.rmtree(project, ignore_errors=True)
         raise
 
+def attach_project_inputs(project: Path, *, validation_structure: Path | None = None,
+                          mmcif: Path | None = None, ccd: Path | None = None,
+                          confirm_completed: bool = False) -> dict:
+    """Atomically attach authoritative structure inputs and invalidate dependents."""
+    project=Path(project).resolve()
+    state=project_status(project)
+    if state.get('stages',{}).get('FINALIZATION',{}).get('status')=='PASS' and not confirm_completed:
+        raise ValueError('E103 COMPLETED_PROJECT_INPUT_CHANGE_REQUIRES_CONFIRMATION')
+    data=json.loads((project/'project.json').read_text())
+    protein=Path(data['receptor_source']); compounds=Path(data['ligand_source'])
+    if not any((validation_structure,mmcif,ccd)): raise ValueError('E001 NO_INPUT_CHANGE')
+    temp=project/'input'/'.pending-inputs'; temp.mkdir(parents=True,exist_ok=True)
+    replacements=[]
+    try:
+        def stage(source, name, suffixes):
+            if source is None: return None
+            source=Path(source)
+            if source.suffix.lower() not in suffixes or not source.is_file(): raise ValueError('E001 INVALID_INPUT_FILE')
+            target=temp/name; shutil.copy2(source,target); return target
+        v=stage(validation_structure,'validation_structure',('.pdb','.ent','.cif','.mmcif'))
+        m=stage(mmcif,'structure.cif',('.cif','.mmcif'))
+        c=stage(ccd,'ccd.json',('.json','.cif'))
+        validate_uploaded_inputs(protein,compounds,m,c)
+        final_map=[]
+        for staged, final in ((v,project/'input'/'validation_structure.pdb'),(m,project/'input'/'structure.cif'),(c,project/'input'/'ccd.json')):
+            if staged:
+                final.parent.mkdir(parents=True,exist_ok=True); os.replace(staged,final); final_map.append((final,final))
+        inputs=json.loads((project/'gui_inputs.json').read_text()) if (project/'gui_inputs.json').exists() else {}
+        if v: inputs['validation_structure']=str(project/'input'/'validation_structure.pdb')
+        if m: inputs['mmcif']=str(project/'input'/'structure.cif')
+        if c: inputs['ccd']=str(project/'input'/'ccd.json')
+        _atomic_write(project/'gui_inputs.json',inputs)
+        from .intake import protein_intake_summary
+        _atomic_write(project/'intake.json',protein_intake_summary(protein,mmcif=Path(inputs['mmcif']) if inputs.get('mmcif') else None))
+        from .structure_context import structure_context
+        validation=Path(inputs['validation_structure']) if inputs.get('validation_structure') else None
+        _atomic_write(project/'provenance'/'structure_context.json',structure_context(protein,validation))
+        state=invalidate_from(state,'REFERENCE','AUTHORITATIVE_STRUCTURE_INPUT_CHANGED')
+        for record in state.get('compounds',{}).values():
+            for stage in record.values():
+                if isinstance(stage,dict): stage['status']='STALE'; stage.setdefault('warnings',[]).append('AUTHORITATIVE_STRUCTURE_INPUT_CHANGED')
+        _atomic_write(project/'project_state.json',state)
+        return {'project':str(project),'updated':['validation_structure' if v else None,'mmcif' if m else None,'ccd' if c else None]}
+    finally:
+        shutil.rmtree(temp,ignore_errors=True)
+
 
 def reference_view(project: Path) -> dict:
     validation = project / "validation"
@@ -146,6 +192,14 @@ def reference_view(project: Path) -> dict:
         path = validation / filename
         if path.exists():
             result[key] = path.read_text(encoding="utf-8") if key.endswith("csv") else json.loads(path.read_text(encoding="utf-8"))
+    try:
+        result['structure_intake']=json.loads((project/'intake.json').read_text())
+    except Exception:
+        result['structure_intake']={}
+    try:
+        result['structure_context']=json.loads((project/'provenance'/'structure_context.json').read_text())
+    except Exception:
+        result['structure_context']={}
     return result
 
 def set_reference_override(project: Path, instance: str) -> dict:
@@ -170,8 +224,17 @@ def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
         with project_execution_lock(project, {'interface':'GUI','action':'PROBE'}): pass
     except ProjectExecutionLocked: locked=True
     dependency_ready=True if doctor is None else doctor.get('status') in {'READY','READY_WITH_WARNINGS'}
+    intake={}; context={}
+    try: intake=json.loads((project/'intake.json').read_text())
+    except Exception: pass
+    try: context=json.loads((project/'provenance'/'structure_context.json').read_text())
+    except Exception: pass
+    structure_class=intake.get('structure_classification')
+    validation_attached=bool(context.get('validation_structure',{}).get('path')) and context.get('validation_structure',{}).get('path') != context.get('production_receptor',{}).get('path')
     if active or locked: action, url, message='RUNNING', None, 'Project currently executing.'
     elif reference_status=='LOW': action, url, message='SELECT_REFERENCE', f'/projects/{project.name}/reference', 'Reference ligand selection requires an explicit choice.'
+    elif structure_class in {'PROCESSED_STRIPPED','APO_NO_REFERENCE','ION_ONLY'} and not validation_attached: action, url, message='UPLOAD_VALIDATION_STRUCTURE', f'/projects/{project.name}/reference-inputs', 'No usable crystallographic reference ligand is available. Upload a validation structure.'
+    elif context.get('validation_mode')=='SURROGATE_HOLO_VALIDATION': action, url, message='NO_NATIVE_VALIDATION', f'/projects/{project.name}/reference-inputs', 'The validation structure is related but not equivalent for strict native validation.'
     elif final=='BLOCKED' or validation.get('scientific_status')=='FAIL': action, url, message='VIEW_VALIDATION', f'/projects/{project.name}/results', 'Native redocking validation failed; compound docking was not performed.'
     elif job and job.get('status') in {'INTERRUPTED','ORPHANED'} or stored_final in {'STALE'}: action, url, message='RESUME', f'/projects/{project.name}/resume', 'Persisted scientific state can be resumed.'
     elif final in {'COMPLETE','COMPLETE_WITH_WARNINGS','PARTIAL'}: action, url, message='VIEW_RESULTS', f'/projects/{project.name}/results', 'View persisted results.'
@@ -179,7 +242,7 @@ def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
     elif not dependency_ready: action, url, message='NONE', '/doctor', 'Execution environment is not ready.'
     elif reference_status=='NOT_RUN': action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
     else: action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
-    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'compound_total':len(compounds),'input_compound_count':input_count,'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
+    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'structure_classification':structure_class,'validation_mode':context.get('validation_mode'),'compound_total':len(compounds),'input_compound_count':input_count,'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
 
 def project_view(project: Path) -> dict:
     return {"project": str(project.resolve()), "state": project_status(project), "reference": reference_view(project), 'dashboard':dashboard_view(project)}
@@ -303,6 +366,14 @@ def start_run(project: Path, *, config: dict | None = None, reference_ligand: st
     if not Path(data.get('receptor_source','')).is_file(): raise RuntimeError('Required protein input is missing.')
     count, _ = input_compound_count(project)
     if count < 1: raise RuntimeError('No valid compounds were found in the project SDF input.')
+    try: intake=json.loads((project/'intake.json').read_text())
+    except Exception: intake={}
+    try: context=json.loads((project/'provenance'/'structure_context.json').read_text())
+    except Exception: context={}
+    if intake.get('structure_classification') in {'PROCESSED_STRIPPED','APO_NO_REFERENCE','ION_ONLY'} and not context.get('validation_structure',{}).get('path'):
+        raise RuntimeError('E101 NO_REFERENCE_PRESENT: upload a validation structure before running')
+    if context.get('validation_mode')=='SURROGATE_HOLO_VALIDATION':
+        raise RuntimeError('E102 SURROGATE_STRUCTURE_NOT_NATIVE: strict native validation cannot be transferred')
     with _jobs_lock:
         try:
             with project_lock(project,'reservation'):

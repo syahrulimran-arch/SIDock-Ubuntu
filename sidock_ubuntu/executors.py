@@ -22,6 +22,7 @@ class ProductionContext:
     config: dict
     receptor: Path | None = None
     ligand_sdf: Path | None = None
+    validation_structure: Path | None = None
     callbacks: dict[str, Callable[..., Any]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -121,19 +122,22 @@ def _global_result(ctx: ProductionContext, name: str, *args, **kwargs) -> StageR
 
 def _default_global_callback(ctx: ProductionContext, name: str):
     """Construct the real global seam adapter from persisted/bootstrap context."""
-    from .intake import hetero_groups, choose_reference_ligand
+    from .intake import hetero_groups, semantic_reference_groups, choose_reference_ligand
     from .core import pdbqt_atom_types, resolve_executable
     from .validation import prepare_native_ligand
     if name=='reference':
         def reference():
-            groups=hetero_groups(ctx.receptor)
+            source_structure = Path(ctx.validation_structure or ctx.receptor)
+            mmcif_path=ctx.config.get('reference',{}).get('mmcif_path')
+            groups=semantic_reference_groups(source_structure, mmcif=Path(mmcif_path) if mmcif_path else None)
+            if not groups: groups=hetero_groups(source_structure)
             # Persist the chemistry-aware candidate audit when the local PDB
             # contains discoverable candidates.  Minimal seam fixtures may not
             # have HETATM records, so legacy backend tests remain compatible.
             from .intake import reference_candidates, receptor_completeness
             from .reference import write_reference_selection, sha256_file, load_local_ccd, load_local_mmcif, reference_config_fingerprint, map_instance_to_ccd
             try:
-                candidates=reference_candidates(ctx.receptor) if ctx.receptor and ctx.receptor.exists() else []
+                candidates=reference_candidates(source_structure) if source_structure.exists() else []
             except (AttributeError, ValueError):
                 # Test/backend adapters may expose only the minimal group
                 # identity needed by the existing reference seam.
@@ -160,10 +164,20 @@ def _default_global_callback(ctx: ProductionContext, name: str):
                         bad=lambda xs: sum(1 for x in xs if str(x.get('classification','')).startswith('INCOMPLETE'))
                         row.update({'binding_site_complete':bad(binding)==0,'binding_site_incomplete_residue_count':bad(binding),'binding_site_incomplete_atom_count':sum(len(str(x.get('missing_heavy_atoms','')).split(';')) for x in binding if x.get('missing_heavy_atoms')),'peripheral_incomplete_residue_count':bad(peripheral),'peripheral_incomplete_atom_count':sum(len(str(x.get('missing_heavy_atoms','')).split(';')) for x in peripheral if x.get('missing_heavy_atoms')),'contact_environment_complete':bad(contact)==0,'contact_environment_complete_fraction':(len(contact)-bad(contact))/len(contact) if contact else 1.0})
                 selection_artifacts=write_reference_selection(ctx.project,candidates,override=ref_cfg.get('ligand'),input_hashes={'receptor':sha256_file(ctx.receptor),'reference_config':reference_config_fingerprint(ctx.config),'ccd':ccd_source.get('source_hash'),'mmcif':mmcif_source.get('source_hash')},provenance={'source':'local_pdb','ccd':ccd_source,'mmcif':mmcif_source})
-            if selected is None: raise RuntimeError('E101 REFERENCE_LIGAND_UNRESOLVED')
-            out=run_reference_stage(ctx.receptor,ctx.project,selected)
+            if selected is None:
+                reason='NO_REFERENCE_PRESENT'
+                intake_path=ctx.project/'intake.json'
+                if intake_path.exists():
+                    try:
+                        cls=__import__('json').loads(intake_path.read_text()).get('structure_classification')
+                        reason={'ION_ONLY':'ONLY_IONS','PROCESSED_STRIPPED':'PROCESSED_STRUCTURE_NO_LIGAND'}.get(cls,reason)
+                    except Exception: pass
+                raise RuntimeError(f'E101 REFERENCE_LIGAND_UNRESOLVED: {reason}')
+            out=run_reference_stage(source_structure,ctx.project,selected)
             out.setdefault('selected_ligand',selected.key); out.setdefault('resname',selected.resname); out.setdefault('chain',selected.chain); out.setdefault('resseq',selected.resseq); out.setdefault('reference_pdb',out.get('reference_pdb'))
-            out.update({'candidate_csv':selection_artifacts.get('candidate_csv'),'selection_json':selection_artifacts.get('selection_json'),'source_metadata':{'ccd':ccd_source,'mmcif':mmcif_source},'input_hashes':{str(ctx.receptor):sha256_file(ctx.receptor),'reference_config':reference_config_fingerprint(ctx.config),**({str(ref_cfg['ccd_path']):ccd_source.get('source_hash')} if ccd_source.get('source_hash') else {}),**({str(ref_cfg['mmcif_path']):mmcif_source.get('source_hash')} if mmcif_source.get('source_hash') else {})}})
+            context_file=ctx.project/'provenance'/'structure_context.json'
+            context_meta=__import__('json').loads(context_file.read_text()) if context_file.exists() else {}
+            out.update({'candidate_csv':selection_artifacts.get('candidate_csv'),'selection_json':selection_artifacts.get('selection_json'),'source_metadata':{'ccd':ccd_source,'mmcif':mmcif_source,'structure_used':str(source_structure),'production_receptor':context_meta.get('production_receptor'),'validation_structure':context_meta.get('validation_structure'),'validation_mode':context_meta.get('validation_mode')},'input_hashes':{str(source_structure):sha256_file(source_structure),'production_receptor':sha256_file(ctx.receptor),'reference_config':reference_config_fingerprint(ctx.config),**({str(ref_cfg['ccd_path']):ccd_source.get('source_hash')} if ccd_source.get('source_hash') else {}),**({str(ref_cfg['mmcif_path']):mmcif_source.get('source_hash')} if mmcif_source.get('source_hash') else {})}})
             return out
         return reference
     if name=='receptor':
@@ -190,7 +204,8 @@ def _default_global_callback(ctx: ProductionContext, name: str):
                 # Compatibility for injected seam fixtures without an input SDF;
                 # production contexts always take the prepared-PDBQT path above.
                 ligand_types=validate_ad4_types(['C','N','OA','S'])
-            return run_grid_stage(ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',grid_box,ligand_types,resolve_executable('autogrid4','AutoGrid4'))
+            production_grid = ctx.project/'grid'/'production' if (ctx.project/'provenance'/'structure_context.json').exists() else ctx.project/'grid'
+            return run_grid_stage(ctx.project/rec.prepared_receptor_pdbqt,production_grid,grid_box,ligand_types,resolve_executable('autogrid4','AutoGrid4'))
         return grid
     if name=='validation':
         def validation():
@@ -201,7 +216,35 @@ def _default_global_callback(ctx: ProductionContext, name: str):
             native_prepared=prepare_native_ligand(native,ctx.project/'analysis/validation',ccd_path=Path(ccd_path) if ccd_path else None)
             box=type('Grid',(),{'center_x':(grid.center or [0,0,0])[0],'center_y':(grid.center or [0,0,0])[1],'center_z':(grid.center or [0,0,0])[2],'npts_x':(grid.dimensions or [0,0,0])[0],'npts_y':(grid.dimensions or [0,0,0])[1],'npts_z':(grid.dimensions or [0,0,0])[2],'spacing':grid.spacing or 0.375})()
             from .model import DockingParameters
-            return run_validation_stage(native,ctx.project/rec.prepared_receptor_pdbqt,ctx.project/'grid',ctx.project/'docking/work'/'native_validation',ctx.project/'analysis/validation',box,DockingParameters(ga_runs=ctx.config.get('validation',{}).get('ga_runs',10)),info,ccd_path=Path(ccd_path) if ccd_path else None)
+            validation_receptor = ctx.project/rec.prepared_receptor_pdbqt
+            context_path = ctx.project/'provenance'/'structure_context.json'
+            context = {}
+            # Minimal injected backend fixtures and legacy v0.5 projects do
+            # not carry the v0.6 structure contract; retain their established
+            # seam behavior and legacy production grid routing.
+            if not context_path.exists():
+                return run_validation_stage(native,validation_receptor,ctx.project/'grid',ctx.project/'docking/work'/'native_validation',ctx.project/'analysis/validation',box,DockingParameters(ga_runs=ctx.config.get('validation',{}).get('ga_runs',10)),info,ccd_path=Path(ccd_path) if ccd_path else None)
+            if context_path.exists():
+                context = __import__('json').loads(context_path.read_text())
+                if context.get('validation_mode') == 'SURROGATE_HOLO_VALIDATION':
+                    raise RuntimeError('E102 SURROGATE_STRUCTURE_NOT_NATIVE')
+                validation_source = Path(context.get('validation_structure',{}).get('path',''))
+                production_source = Path(context.get('production_receptor',{}).get('path',''))
+                if validation_source.is_file() and production_source.is_file() and validation_source.resolve() != production_source.resolve():
+                    # Native redocking must use the receptor context paired
+                    # with the crystallographic ligand. Production docking
+                    # continues to use the production receptor output.
+                    prepared = run_receptor_stage(validation_source, ctx.project/'receptor'/'validation', type('G',(),{'resname':ref.residue_name,'chain':ref.chain,'resseq':ref.residue_number})(), allow_bad_res=False)
+                    validation_receptor = Path(prepared.get('receptor_pdbqt') or prepared.get('prepared_receptor_pdbqt'))
+            # Native redocking owns a separate grid role.  Its receptor,
+            # maps, and DPF are all rooted below validation/ and cannot be
+            # confused with the production grid used by study compounds.
+            validation_grid=ctx.project/'grid'/'validation'
+            validation_types=pdbqt_atom_types(native_prepared['pdbqt'])
+            validation_grid_result=run_grid_stage(validation_receptor,validation_grid,box,validate_ad4_types(validation_types),resolve_executable('autogrid4','AutoGrid4'))
+            result=run_validation_stage(native,validation_receptor,validation_grid,ctx.project/'docking/work'/'native_validation',ctx.project/'analysis/validation',box,DockingParameters(ga_runs=ctx.config.get('validation',{}).get('ga_runs',10)),info,ccd_path=Path(ccd_path) if ccd_path else None)
+            result.update({'validation_receptor':str(validation_receptor),'validation_grid':str(validation_grid),'validation_grid_gpf':str(validation_grid_result['gpf']),'validation_grid_maps':[str(x) for x in validation_grid.glob('receptor.*.map*')],'validation_ligand_types':validate_ad4_types(validation_types),'validation_mode':context.get('validation_mode') if context_path.exists() else None})
+            return result
         return validation
     if name=='finalization':
         def finalization():
@@ -257,8 +300,13 @@ def production_context_from_project(project: Path, config: dict) -> ProductionCo
         inputs=json.loads(gui_inputs.read_text(encoding='utf-8'))
         if inputs.get('ccd'): config['reference']['ccd_path']=inputs['ccd']
         if inputs.get('mmcif'): config['reference']['mmcif_path']=inputs['mmcif']
+    validation = None
+    gui_inputs=project/'gui_inputs.json'
+    if gui_inputs.exists():
+        inputs=json.loads(gui_inputs.read_text(encoding='utf-8'))
+        validation=Path(inputs['validation_structure']) if inputs.get('validation_structure') else None
     ctx=ProductionContext(project, config, Path(data.get('receptor_source','')),
-                          Path(data.get('ligand_source','')))
+                          Path(data.get('ligand_source','')), validation_structure=validation)
     ctx.rehydrate_global_outputs()
     def prepared(cid):
         source_dir=project/'ligands/source'; prepared_dir=project/'ligands/prepared'
@@ -273,7 +321,7 @@ def production_context_from_project(project: Path, config: dict) -> ProductionCo
     def dock(cid):
         lig=project/'ligands/prepared'/f'{cid}.pdbqt'
         work=project/'docking/work'; work.mkdir(parents=True,exist_ok=True)
-        grid=project/'grid'
+        grid=project/'grid'/'production' if (project/'grid'/'production').exists() else project/'grid'
         import shutil
         shutil.copy2(lig, work/lig.name)
         receptor_work=project/'docking/receptor'; receptor_work.mkdir(parents=True,exist_ok=True)

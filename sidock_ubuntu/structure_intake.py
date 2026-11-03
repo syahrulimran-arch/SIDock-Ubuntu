@@ -4,6 +4,28 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 import json
 
+def _mmcif_components(path: Path) -> dict:
+    """Read the small, stable metadata subset needed for intake.
+
+    This deliberately does not replace coordinate parsing.  It only supplies
+    deposited component/entity identity when a local mmCIF is available.
+    """
+    result = {'components': [], 'source': str(Path(path).resolve())}
+    try:
+        import gemmi
+        doc = gemmi.cif.read_file(str(path))
+        block = doc.sole_block()
+        for tag in ('_chem_comp.id', '_pdbx_nonpoly_scheme.mon_id', '_atom_site.label_comp_id'):
+            values = block.find_values(tag)
+            if values:
+                result['components'].extend(str(v).strip().upper() for v in values if str(v).strip() not in {'.','?'})
+        result['components'] = sorted(set(result['components']))
+        return result
+    except Exception:
+        # Keep local legacy parsing usable when Gemmi cannot parse an optional
+        # metadata file; the caller records that PDB fallback was used.
+        return result
+
 WATERS = {'HOH','WAT','H2O','DOD'}
 IONS = {'CA','ZN','MG','MN','FE','NA','K','CL','CU','CO','NI','CD','HG','BR','I','LI','CS','SR','BA','AL','AG','AU','PB'}
 AMINO = {'ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE','LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL','ASX','GLX','SEC','PYL'}
@@ -38,6 +60,19 @@ def classify_structure(path: Path, *, mmcif: Path | None = None) -> StructureCla
         elif heavy >= 3: candidates.append(item)
         else: excluded.append({**item,'reason':'too small for reference ligand'})
     text=Path(path).read_text(encoding='utf-8', errors='replace').upper()
+    mm_components = _mmcif_components(Path(mmcif))['components'] if mmcif and Path(mmcif).exists() else []
+    # mmCIF component identity is authoritative for classification.  The PDB
+    # remains the coordinate source; synthetic metadata-only rows are enough
+    # to prevent an ambiguous PDB record from overriding deposited identity.
+    if mm_components:
+        pdb_by_name = {x['component']: x for x in candidates + ions + waters + excluded}
+        for name in mm_components:
+            if name in WATERS and name not in {x['component'] for x in waters}:
+                waters.append({'component':name,'chain':'','residue_number':'','heavy_atoms':0,'record_types':[],'reason':'water'})
+            elif name in IONS and name not in {x['component'] for x in ions}:
+                ions.append({'component':name,'chain':'','residue_number':'','heavy_atoms':1,'record_types':[],'reason':'inorganic ion'})
+            elif name not in WATERS and name not in IONS and name not in AMINO and name not in NUCLEOTIDES and name not in {x['component'] for x in candidates}:
+                candidates.append({'component':name,'chain':'','residue_number':'','heavy_atoms':0,'record_types':[],'metadata_only':True})
     indicators=[]
     if any(x in text for x in ('DISCOVERY STUDIO','ACCELRYS')): indicators.append('ACCELRYS_DISCOVERY_STUDIO_REMARK')
     if not any(line.startswith(('HEADER','TITLE','COMPND','HETNAM')) for line in text.splitlines()): indicators.append('MISSING_DEPOSITED_METADATA')
