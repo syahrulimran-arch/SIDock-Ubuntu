@@ -66,6 +66,19 @@ def get_project_config(project: Path) -> dict:
     except Exception as exc:
         return {'config':None,'path':str(path),'source':'invalid persisted configuration','error':str(exc)}
 
+def input_compound_count(project: Path) -> tuple[int, list[str]]:
+    """Count valid molecules using the same RDKit admission path as uploads."""
+    try:
+        from rdkit import Chem
+        data=json.loads((Path(project)/'project.json').read_text(encoding='utf-8'))
+        source=Path(data.get('ligand_source',''))
+        if not source.exists(): return 0, []
+        molecules=[m for m in Chem.SDMolSupplier(str(source), sanitize=True, removeHs=False) if m is not None]
+        ids=[m.GetProp('_Name') if m.HasProp('_Name') and m.GetProp('_Name') else str(i+1) for i,m in enumerate(molecules)]
+        return len(molecules), ids
+    except Exception:
+        return 0, []
+
 _jobs: dict[str, multiprocessing.Process] = {}
 _jobs_lock = threading.Lock()
 
@@ -144,6 +157,7 @@ def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
     ref=reference_view(project); selection=ref.get('selection',{}) if isinstance(ref.get('selection'),dict) else {}
     confidence=selection.get('confidence'); reference_status='RESOLVED' if selection.get('selected_instance') else ('LOW' if confidence=='LOW' else ('NOT_RUN' if not ref else 'UNRESOLVED'))
     validation=state.get('stages',{}).get('VALIDATION',{}); compounds=get_compounds(project); statuses=[x['status'] for x in compounds]
+    input_count, _ = input_compound_count(project)
     locked=False
     try:
         with project_execution_lock(project, {'interface':'GUI','action':'PROBE'}): pass
@@ -158,7 +172,7 @@ def dashboard_view(project: Path, *, doctor: dict | None = None) -> dict:
     elif not dependency_ready: action, url, message='NONE', '/doctor', 'Execution environment is not ready.'
     elif reference_status=='NOT_RUN': action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
     else: action, url, message='RUN', f'/projects/{project.name}/run', 'Ready to start SIDock execution.'
-    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'compound_total':len(compounds),'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
+    return {'project':str(project.resolve()),'project_status':final,'operational_job_status':job.get('status') if job else None,'reference_status':reference_status,'reference_confidence':confidence,'validation_status':validation.get('status','NOT_RUN'),'validation_rmsd':validation.get('rmsd_A') or validation.get('minimum_rmsd'),'validation_threshold':validation.get('threshold') or validation.get('rmsd_threshold'),'compound_total':len(compounds),'input_compound_count':input_count,'compound_success':statuses.count('PASS'),'compound_failed':statuses.count('FAIL'),'compound_blocked':statuses.count('BLOCKED'),'primary_action':action,'primary_action_url':url,'explanatory_message':message,'warnings':_evidence(project).get('warnings',[]),'job':job,'active_job':active or locked,'reference':ref}
 
 def project_view(project: Path) -> dict:
     return {"project": str(project.resolve()), "state": project_status(project), "reference": reference_view(project), 'dashboard':dashboard_view(project)}
@@ -278,6 +292,10 @@ def start_run(project: Path, *, config: dict | None = None, reference_ligand: st
     project=project.resolve()
     if get_doctor_status().get('status') == 'NOT_READY':
         raise RuntimeError('Execution environment is not ready; see Doctor for missing dependencies.')
+    data=json.loads((project/'project.json').read_text(encoding='utf-8'))
+    if not Path(data.get('receptor_source','')).is_file(): raise RuntimeError('Required protein input is missing.')
+    count, _ = input_compound_count(project)
+    if count < 1: raise RuntimeError('No valid compounds were found in the project SDF input.')
     with _jobs_lock:
         try:
             with project_lock(project,'reservation'):

@@ -15,7 +15,7 @@ from sidock_ubuntu.state import update_compound, update_state, ensure_compounds
 
 def fixture_inputs(tmp_path):
     pdb=tmp_path/'protein.pdb'; pdb.write_text('ATOM\n')
-    sdf=tmp_path/'compounds.sdf'; sdf.write_text('minimal\n')
+    sdf=tmp_path/'compounds.sdf'; sdf.write_text('minimal\n  SIDock\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n$$$$\n')
     return pdb,sdf
 
 def test_project_name_and_workspace_are_confined(tmp_path):
@@ -187,7 +187,7 @@ def test_compounds_browser_route_preserves_page_alias_and_empty_state(tmp_path):
     for query in ('', '?page=1', '?page=2&page_size=25&search=test&status=ALL&sort=compound_id'):
         response=client.get('/projects/pending/compounds'+query)
         assert response.status_code==200
-        assert 'No compounds are available' in response.text
+        assert '0 compounds were found' in response.text
 
 def test_compounds_browser_route_paginates_with_page_query(tmp_path):
     pytest.importorskip('fastapi')

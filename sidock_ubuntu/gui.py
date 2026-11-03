@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 from .gui_service import (create_project, get_compound_detail, get_compounds, get_compound_page, get_project_results,
                            get_config, get_doctor_status, get_job, get_job_history, get_project_config, get_worker_log, resolve_project_artifact, validate_config_values,
-                           get_job, project_view, reconcile_jobs, resume_project, safe_project_name,
+                           get_job, project_view, reconcile_jobs, resume_project, safe_project_name, input_compound_count,
                            set_reference_override, start_run, workspace_path, validate_uploaded_inputs, MAX_UPLOAD_BYTES)
 from .state import project_status, derived_project_status
 
 try:
-    from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query
+    from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query, Request
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse, FileResponse
 except ImportError:  # pragma: no cover
@@ -20,7 +20,7 @@ def _workspace(value=None):
 
 def create_app(workspace=None):
     if FastAPI is None: raise RuntimeError('FastAPI is required for the v0.5 GUI')
-    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.5.1')
+    root=_workspace(workspace); reconcile_jobs(root); app=FastAPI(title='SIDock Ubuntu',version='0.5.2')
     static_dir=Path(__file__).with_name('static'); static_dir.mkdir(exist_ok=True); app.mount('/static', StaticFiles(directory=str(static_dir)), name='static')
     def page(title, body):
         import html as h
@@ -96,7 +96,8 @@ def create_app(workspace=None):
     def detail(project_id):
         data=project_view(get_project(project_id)); import html as h
         state=data['state']; final=derived_project_status(state); counts=data.get('reference',{}); dash=data['dashboard']
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation: {h.escape(str(dash['validation_status']))}</p><p>Compounds: {dash['compound_total']} total, {dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked.</p><p>{h.escape(dash['explanatory_message'])}</p><p><a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a></p><p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        action=(f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>{h.escape(dash['primary_action'])}</button></form>" if dash['primary_action'] in {'RUN','RESUME'} else f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>")
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation: {h.escape(str(dash['validation_status']))}</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
         if final=='BLOCKED': body += '<p class="error">Native redocking validation failed; compound docking was not performed.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
@@ -135,12 +136,22 @@ def create_app(workspace=None):
         try: return set_reference_override(get_project(project_id), instance)
         except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc))
     @app.post('/projects/{project_id}/run')
-    def run(project_id):
-        try: return start_run(get_project(project_id))
+    def run(project_id, request: Request):
+        try:
+            result=start_run(get_project(project_id))
+            if 'text/html' in request.headers.get('accept','') or request.headers.get('content-type','').startswith('application/x-www-form-urlencoded'):
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(f'/projects/{project_id}',status_code=303)
+            return result
         except RuntimeError as exc: raise HTTPException(status_code=409,detail=str(exc))
     @app.post('/projects/{project_id}/resume')
-    def resume(project_id):
-        try: return resume_project(get_project(project_id))
+    def resume(project_id, request: Request):
+        try:
+            result=resume_project(get_project(project_id))
+            if 'text/html' in request.headers.get('accept','') or request.headers.get('content-type','').startswith('application/x-www-form-urlencoded'):
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(f'/projects/{project_id}',status_code=303)
+            return result
         except RuntimeError as exc: raise HTTPException(status_code=409,detail=str(exc))
     @app.get('/projects/{project_id}/compounds',response_class=HTMLResponse)
     def compounds(project_id, page_num:int=Query(1, alias='page', ge=1), page_size:int=25, status:str='ALL', search:str='', sort:str='compound_id'):
@@ -148,7 +159,8 @@ def create_app(workspace=None):
         for row in data['items']:
             cid=__import__('html').escape(str(row['compound_id'])); body.append(f"<tr><td>{cid}</td><td>{__import__('html').escape(row['status'])}</td><td>{__import__('html').escape(str(row.get('docking_energy') if row.get('docking_energy') is not None else 'Unavailable'))}</td><td><a href='/projects/{project_id}/compounds/{cid}'>Details</a></td></tr>")
         if not data['total']:
-            return page('Compounds - '+project_id,'<h1>Compounds</h1><p>No compounds are available in this project.</p>')
+            count,_=input_compound_count(get_project(project_id))
+            return page('Compounds - '+project_id,f'<h1>Compounds</h1><p>Compound execution has not started yet. {count} compounds were found in the input SDF.</p>')
         links=[]
         for n in range(1,data['pages']+1): links.append(f"<a href='?page={n}&page_size={data['page_size']}&status={status}&search={__import__('urllib.parse').parse.quote(search)}&sort={sort}'>{n}</a>")
         return page('Compounds',''.join(body)+f"</table><p>{' '.join(links)}</p>")

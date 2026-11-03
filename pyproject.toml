@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sidock-ubuntu"
-version = "0.5.1"
+version = "0.5.2"
 description = "Headless AI-orchestrated AutoDock4 workflow derived from SIDock AD4 0.7.6"
 authors = [{name = "Dr Syahrul Imran"}]
 readme = "README.md"
