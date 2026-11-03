@@ -34,12 +34,7 @@ def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_
     return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info,ccd_path=ccd_path)
 
 def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str):
-    """Generate one role-specific AutoGrid grid and persist exact provenance.
-
-    ``grid_dir`` is authoritative for the grid role. v0.6 uses ``grid/production``
-    for study compounds and ``grid/validation`` for native redocking. Legacy
-    callers that still use ``grid/`` retain the previous behavior.
-    """
+    """Generate one role-specific AutoGrid grid and persist exact provenance."""
     import hashlib
     import json
     import shutil
@@ -92,8 +87,11 @@ def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path,
 
     AutoDock4 itself is a single CPU process. Isolating each compound's working
     directory allows many AutoDock processes to run concurrently without racing
-    on ligand, DPF, map, or log files.
+    on ligand, DPF, map, or log files. Production GA runs are read from the
+    current run provenance and are independent of the number of CPU workers.
     """
+    import copy
+    import json
     import shutil
 
     dpf_dir.mkdir(parents=True,exist_ok=True); dlg_dir.mkdir(parents=True,exist_ok=True); work_dir.mkdir(parents=True,exist_ok=True)
@@ -101,20 +99,27 @@ def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path,
     local_ligand=run_dir/ligand_pdbqt.name
     shutil.copy2(ligand_pdbqt,local_ligand)
 
-    # The caller populates the shared work root with the read-only production
-    # maps. Copy them into the private execution directory so concurrent jobs
-    # never write or truncate the same files.
     for artifact in work_dir.glob(f'{receptor_stem}.*.map*'):
         if artifact.is_file(): shutil.copy2(artifact,run_dir/artifact.name)
     fld=work_dir/f'{receptor_stem}.maps.fld'
     if fld.is_file(): shutil.copy2(fld,run_dir/fld.name)
 
-    dpf=dpf_dir/f'{ligand_pdbqt.stem}.dpf'; write_dpf(receptor_stem,local_ligand,ligand_types,params,dpf)
+    effective_params=copy.copy(params)
+    settings_path=dpf_dir.parent.parent/'provenance'/'parallel_execution.json'
+    if settings_path.is_file():
+        try:
+            settings=json.loads(settings_path.read_text(encoding='utf-8'))
+            ga_runs=int(settings.get('ga_runs_per_compound',effective_params.ga_runs))
+            if ga_runs >= 1: effective_params.ga_runs=ga_runs
+        except (OSError,ValueError,TypeError,json.JSONDecodeError):
+            pass
+
+    dpf=dpf_dir/f'{ligand_pdbqt.stem}.dpf'; write_dpf(receptor_stem,local_ligand,ligand_types,effective_params,dpf)
     shutil.copy2(dpf,run_dir/dpf.name)
     dlg=dlg_dir/f'{ligand_pdbqt.stem}.dlg'
     code=run_command([autodock,'-p',dpf.name,'-l',str(dlg.resolve())],run_dir,run_dir/f'{ligand_pdbqt.stem}.log')
     if code!=0 or not dlg.exists(): raise RuntimeError('E502 AUTODOCK_FAILED')
-    return {'dpf':dpf,'dlg':dlg,'work_dir':run_dir}
+    return {'dpf':dpf,'dlg':dlg,'work_dir':run_dir,'ga_runs':effective_params.ga_runs}
 
 def _single_dlg(dlg_or_dir: Path) -> Path | None:
     if dlg_or_dir.is_file():
@@ -122,12 +127,7 @@ def _single_dlg(dlg_or_dir: Path) -> Path | None:
     return next(iter(sorted(dlg_or_dir.glob('*.dlg'))),None)
 
 def run_pose_extraction_stage(dlg_dir: Path, analysis_dir: Path, top_n=20):
-    """Extract poses using the existing analysis implementation.
-
-    The current backend writes pose/complex artifacts and ranking in one
-    validated operation; this seam exposes the extraction contract without
-    changing that implementation.
-    """
+    """Extract poses using the existing analysis implementation."""
     dlg=_single_dlg(dlg_dir)
     if dlg is None: raise RuntimeError('E602 POSE_MAPPING_FAILED')
     receptor=dlg_dir.parent.parent/'receptor'/'receptor.pdbqt'
