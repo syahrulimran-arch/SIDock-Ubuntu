@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import csv
+import os
 import shutil
 import subprocess
 from pathlib import Path
+
+# SIDock runs plotting from non-interactive CLI/GUI worker processes.  Force a
+# file-only backend before pyplot is imported so Matplotlib never initializes
+# Tk/Tcl from a worker thread/process.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 def activity_scatter(stats: dict[str, object], destination: Path) -> Path | None:
     rows = stats.get("rows", [])
     if not isinstance(rows, list) or len(rows) < 2:
         return None
+    import matplotlib
+    matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
     x = [float(r["energy_kcal_mol"]) for r in rows]
     y = [float(r["pIC50"]) for r in rows]
