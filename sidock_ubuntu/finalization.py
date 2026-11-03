@@ -33,10 +33,10 @@ def _global(project: Path) -> dict:
 def _validation_policy(project: Path) -> str:
     path=project/'provenance'/'validation_policy.json'
     try:
-        mode=str(json.loads(path.read_text(encoding='utf-8')).get('mode','if_available')).lower()
+        mode=str(json.loads(path.read_text(encoding='utf-8')).get('mode','required')).lower()
     except Exception:
-        mode='if_available'
-    return mode if mode in {'required','if_available','skip'} else 'if_available'
+        mode='required'
+    return mode if mode in {'required','if_available','skip'} else 'required'
 
 def load_finalization_input(project: Path) -> ProjectResultSnapshot:
     state=project_status(project); compounds=[]
@@ -120,4 +120,4 @@ def snapshot_evidence(snapshot: ProjectResultSnapshot) -> dict:
          'validation_policy':mode,
          'docking_validation_status':docking_validation_status}
     blocked_reason='NATIVE_REDOCKING_RMSD_THRESHOLD' if snapshot.status=='BLOCKED' else None
-    return {'schema_version':'0.6','project_status':snapshot.status,'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY','validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,'blocked_reason':blocked_reason,'compounds':compounds,'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
+    return {'schema_version':'0.4','project_status':snapshot.status,'interaction_engine':'PLIP','sidock_internal_parser_status':'EXPERIMENTAL_SECONDARY','validation':val,'blocked_by':'VALIDATION' if snapshot.status=='BLOCKED' else None,'blocked_reason':blocked_reason,'compounds':compounds,'failures':[x for x in compounds if x['status']=='FAILED'],'warnings':snapshot.warnings}
