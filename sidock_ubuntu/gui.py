@@ -36,7 +36,7 @@ def create_app(workspace=None):
         items=[]
         for p in sorted((x for x in root.iterdir() if (x/'project_state.json').exists()), key=lambda x:x.stat().st_mtime, reverse=True):
             state=project_status(p); final=derived_project_status(state)
-            items.append(f"<tr><td><a href='/projects/{h.escape(p.name)}'>{h.escape(p.name)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='/projects/{h.escape(p.name)}'>Open</a></td></tr>")
+            items.append(f"<tr><td><a href='/projects/{h.escape(p.name)}'>{h.escape(final)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='/projects/{h.escape(p.name)}'>Open</a></td></tr>")
         body="<h1>Projects</h1>"+("<table><tr><th>Project</th><th>Status</th><th></th></tr>"+''.join(items)+"</table>" if items else "<p>No projects yet.</p><p><a href='/projects/new'>Create your first project</a></p>")
         return page('Projects',body)
 
@@ -52,7 +52,7 @@ def create_app(workspace=None):
     @app.get('/config',response_class=HTMLResponse)
     def config_page():
         import html as _html, json as _json
-        data=get_config(); return HTMLResponse(f"<h1>Configuration</h1><pre>{_html.escape(_json.dumps(data,indent=2))}</pre><p>StageRunner execution remains serial; jobs above 1 are not enabled.</p>")
+        data=get_config(); return HTMLResponse(f"<h1>Configuration</h1><pre>{_html.escape(_json.dumps(data,indent=2))}</pre><p>AutoDock compound jobs can run concurrently; parallel_jobs=auto uses the CPUs available to the SIDock process.</p>")
 
     @app.get('/api/config')
     def config_api(): return get_config()
@@ -100,12 +100,19 @@ def create_app(workspace=None):
         if dash['primary_action']=='RUN':
             policy=dash.get('validation_policy','required')
             options=''.join(f"<option value='{value}'{' selected' if value==policy else ''}>{label}</option>" for value,label in (('if_available','Validate if available (continue as unvalidated if RMSD fails)'),('required','Require native validation (RMSD ≤ 2 Å)'),('skip','Skip native redocking validation')))
-            action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><label>Validation policy <select name='validation_mode'>{options}</select></label><small>Skipping or accepting failed validation marks the docking results as UNVALIDATED.</small><br><button type='submit'>RUN</button></form>"
+            parallel=dash.get('parallel_jobs','auto'); detected=dash.get('detected_cpus',1); ga=dash.get('ga_runs',10)
+            action=(f"<form method='post' action='{h.escape(dash['primary_action_url'])}'>"
+                    f"<label>Validation policy <select name='validation_mode'>{options}</select></label>"
+                    f"<label>GA runs per compound <input name='ga_runs' type='number' min='1' max='10000' value='{int(ga)}' required></label>"
+                    f"<small>This controls search repetitions inside each compound docking job. It is independent of CPU count.</small>"
+                    f"<label>Parallel compound jobs <input name='parallel_jobs' value='{h.escape(str(parallel))}'></label>"
+                    f"<small>Use <b>auto</b> to use up to the {int(detected)} CPUs available to SIDock, one AutoDock compound job per worker.</small><br>"
+                    f"<button type='submit'>RUN</button></form>")
         elif dash['primary_action']=='RESUME':
             action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>RESUME</button></form>"
         else:
             action=f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>"
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Docking setup: <b>{h.escape(str(dash.get('ga_runs',10)))}</b> GA runs per compound; parallel jobs: <b>{h.escape(str(dash.get('parallel_jobs','auto')))}</b>; detected CPUs: <b>{h.escape(str(dash.get('detected_cpus',1)))}</b>.</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
         if final=='BLOCKED': body += '<p class="error">Strict native redocking validation blocked compound docking.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
@@ -141,7 +148,6 @@ def create_app(workspace=None):
     def reference(project_id): return project_view(get_project(project_id))['reference']
     @app.get('/projects/{project_id}/reference-inputs', response_class=HTMLResponse)
     def reference_inputs(project_id):
-        p=get_project(project_id)
         return page('Reference inputs', f"<h1>Reference inputs</h1><p>Attach or replace validation structure, mmCIF metadata, or CCD chemistry.</p><form method='post' enctype='multipart/form-data'><label>Validation structure <input type='file' name='validation_structure' accept='.pdb,.ent,.cif,.mmcif'></label><label>mmCIF <input type='file' name='mmcif' accept='.cif,.mmcif'></label><label>CCD JSON <input type='file' name='ccd' accept='.json,.cif'></label><button>Update reference inputs</button></form>")
     @app.post('/projects/{project_id}/reference-inputs')
     async def reference_inputs_update(project_id, validation_structure: UploadFile|None=File(None), mmcif: UploadFile|None=File(None), ccd: UploadFile|None=File(None)):
@@ -168,9 +174,9 @@ def create_app(workspace=None):
         try: return set_reference_override(get_project(project_id), instance)
         except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc))
     @app.post('/projects/{project_id}/run')
-    def run(project_id, request: Request, validation_mode: str=Form('required')):
+    def run(project_id, request: Request, validation_mode: str=Form('required'), ga_runs: int=Form(10), parallel_jobs: str=Form('auto')):
         try:
-            result=start_run(get_project(project_id), validation_mode=validation_mode)
+            result=start_run(get_project(project_id), validation_mode=validation_mode, ga_runs=ga_runs, parallel_jobs=parallel_jobs)
             if 'text/html' in request.headers.get('accept','') or request.headers.get('content-type','').startswith('application/x-www-form-urlencoded'):
                 from fastapi.responses import RedirectResponse
                 return RedirectResponse(f'/projects/{project_id}',status_code=303)
@@ -229,7 +235,7 @@ def create_app(workspace=None):
     @app.get('/api/projects/{project_id}/results')
     def results_api(project_id): return get_project_results(get_project(project_id))
 
-    @app.get('/projects/{project_id}/artifacts/{artifact_path:path}')
+    @app.get('/projects/{project_id}/artifacts/{artifact_path:path')
     def artifact(project_id, artifact_path):
         try: path=resolve_project_artifact(get_project(project_id),artifact_path)
         except (ValueError,FileNotFoundError) as exc: raise HTTPException(status_code=400,detail=str(exc))
