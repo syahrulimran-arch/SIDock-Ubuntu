@@ -14,7 +14,7 @@ VALIDATION_MODES = ("required", "if_available", "skip")
 DEFAULT_CONFIG = {
     "reference": {"ligand": None, "remote_enrichment": False},
     "validation": {"mode": "required", "rmsd_threshold": 2.0, "ga_runs": 10},
-    "docking": {"ga_runs": 10, "parallel_jobs": "auto", "max_parallel_jobs": 10, "population_size": 150,
+    "docking": {"ga_runs": 10, "parallel_jobs": 10, "max_parallel_jobs": 10, "population_size": 150,
                  "evaluations": 2500000, "generations": 27000,
                  "mutation_rate": 0.02, "crossover_rate": 0.8, "local_search_frequency": 0.26},
     "interaction": {"primary_engine": "plip"},
@@ -53,7 +53,7 @@ def validate_config(config: dict) -> list[str]:
     if config["validation"]["rmsd_threshold"] <= 0: errors.append("validation.rmsd_threshold must be positive")
     if config["validation"]["ga_runs"] < 1: errors.append("validation.ga_runs must be >= 1")
     if int(config["docking"].get("ga_runs", 0)) < 1: errors.append("docking.ga_runs must be >= 1")
-    parallel=config["docking"].get("parallel_jobs", "auto")
+    parallel=config["docking"].get("parallel_jobs", 10)
     if str(parallel).lower() != "auto":
         try:
             if int(parallel) < 1: errors.append("docking.parallel_jobs must be auto or >= 1")
@@ -76,7 +76,7 @@ def summary(config: dict) -> str:
             f"Validation RMSD: <={config['validation']['rmsd_threshold']:.1f} Å\n"
             f"Validation GA runs: {config['validation']['ga_runs']}\n"
             f"Docking GA runs per compound: {d.get('ga_runs',10)}\n"
-            f"Parallel compound jobs: {d.get('parallel_jobs','auto')}\n"
+            f"Parallel compound jobs: {d.get('parallel_jobs',10)}\n"
             f"Maximum parallel compound jobs: {d.get('max_parallel_jobs',10)}\n"
             f"Population: {d['population_size']}\n"
             f"Evaluations: {d['evaluations']:,}\n"
