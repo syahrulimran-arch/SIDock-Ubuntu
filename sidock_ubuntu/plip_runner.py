@@ -1,11 +1,13 @@
-"""Recovered PLIP workflow from the preserved production dry-run provenance.
+"""PLIP workflow and PDB-complex materialization.
 
-The commands are intentionally kept identical to the recorded workflow:
-``obabel <complex.pdb> -O <protonated.pdb> -h`` followed by
-``plip -f <protonated.pdb> --nohydro -o <out> -x -q``.
+PLIP is run as ``obabel <complex.pdb> -O <protonated.pdb> -h`` followed by
+``plip -f <protonated.pdb> --nohydro -o <out> -x -q``.  Docking pose
+artifacts are PDBQT, so they are first converted into a real PDB complex in
+which the docked compound is an explicit HETATM residue.  This prevents a
+successful PLIP invocation from silently treating the ligand as protein.
 """
 from __future__ import annotations
-import csv, subprocess, xml.etree.ElementTree as ET
+import csv, shutil, subprocess, xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from .errors import SIDockError
@@ -20,6 +22,93 @@ class PlipStageOutput:
     warnings: list[str] | None = None
 
 SCHEMA=['compound_id','pose_id','interaction_type','protein_chain','protein_residue_name','protein_residue_number','protein_atom','ligand_atom','distance_A','angle_deg','PLIP_source']
+
+def _obabel_convert(source: Path, destination: Path, *, runner=subprocess.run) -> Path:
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    p=runner(['obabel',str(source),'-O',str(destination)],capture_output=True,text=True)
+    if p.returncode != 0 or not destination.exists():
+        raise SIDockError('PLIP_FAILED','Open Babel format conversion failed',{'command':['obabel',str(source),'-O',str(destination)]})
+    return destination
+
+def materialize_plip_complex(source: Path, destination: Path, *, runner=subprocess.run) -> Path:
+    """Return a PDB complex with the docked ligand explicitly marked HETATM.
+
+    ``extract_docking_poses`` persists a receptor PDBQT followed by a docked
+    ligand MODEL.  PLIP requires a chemically identifiable hetero residue, so
+    the two regions are converted separately and recombined with a unique
+    ligand residue identity (LIG, chain Z, residue 999).  Ligand CONECT records
+    emitted by Open Babel are renumbered together with the ligand atoms.
+    """
+    source=Path(source); destination=Path(destination)
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    if source.suffix.lower()=='.pdb':
+        if source.resolve()!=destination.resolve(): shutil.copy2(source,destination)
+        return destination
+    if source.suffix.lower()!='.pdbqt':
+        raise SIDockError('PLIP_FAILED',f'Unsupported PLIP complex format: {source.suffix}',{})
+
+    lines=source.read_text(encoding='utf-8',errors='replace').splitlines()
+    model_index=next((i for i,line in enumerate(lines) if line.startswith('MODEL')),None)
+    if model_index is None:
+        raise SIDockError('PLIP_FAILED','Docked PDBQT complex does not contain a ligand MODEL',{})
+    receptor_lines=lines[:model_index]
+    ligand_lines=lines[model_index:]
+    if not any(line.startswith(('ATOM','HETATM')) for line in receptor_lines):
+        raise SIDockError('PLIP_FAILED','PDBQT complex contains no receptor atoms',{})
+    if not any(line.startswith(('ATOM','HETATM')) for line in ligand_lines):
+        raise SIDockError('PLIP_FAILED','PDBQT complex contains no ligand atoms',{})
+
+    scratch=destination.parent/'plip_input_parts'; scratch.mkdir(parents=True,exist_ok=True)
+    receptor_pdbqt=scratch/'receptor.pdbqt'; ligand_pdbqt=scratch/'ligand.pdbqt'
+    receptor_pdbqt.write_text('\n'.join(receptor_lines)+'\n',encoding='utf-8')
+    ligand_pdbqt.write_text('\n'.join(ligand_lines)+'\n',encoding='utf-8')
+    receptor_pdb=_obabel_convert(receptor_pdbqt,scratch/'receptor.pdb',runner=runner)
+    ligand_pdb=_obabel_convert(ligand_pdbqt,scratch/'ligand.pdb',runner=runner)
+
+    receptor_out=[]; max_serial=0
+    for line in receptor_pdb.read_text(encoding='utf-8',errors='replace').splitlines():
+        if line.startswith(('ATOM  ','HETATM')):
+            receptor_out.append(line.rstrip())
+            try: max_serial=max(max_serial,int(line[6:11]))
+            except (ValueError,IndexError): pass
+        elif line.startswith('TER'):
+            receptor_out.append(line.rstrip())
+
+    ligand_raw=ligand_pdb.read_text(encoding='utf-8',errors='replace').splitlines()
+    mapping={}; next_serial=max_serial+1
+    for line in ligand_raw:
+        if not line.startswith(('ATOM  ','HETATM')): continue
+        try: old=int(line[6:11])
+        except (ValueError,IndexError): continue
+        mapping[old]=next_serial; next_serial+=1
+    if not mapping:
+        raise SIDockError('PLIP_FAILED','Open Babel produced no ligand atoms for PLIP',{})
+
+    ligand_out=[]; conect=[]
+    for line in ligand_raw:
+        if line.startswith(('ATOM  ','HETATM')):
+            try: old=int(line[6:11]); new=mapping[old]
+            except (ValueError,IndexError,KeyError): continue
+            chars=list(line.rstrip('\n').ljust(80))
+            chars[0:6]=list('HETATM')
+            chars[6:11]=list(f'{new:5d}')
+            chars[16]=' '
+            chars[17:20]=list('LIG')
+            chars[21]='Z'
+            chars[22:26]=list(f'{999:4d}')
+            chars[26]=' '
+            ligand_out.append(''.join(chars).rstrip())
+        elif line.startswith('CONECT'):
+            ids=[]
+            for token in line.split()[1:]:
+                try: ids.append(int(token))
+                except ValueError: pass
+            remapped=[mapping[x] for x in ids if x in mapping]
+            if len(remapped)>=2:
+                conect.append('CONECT'+''.join(f'{x:5d}' for x in remapped))
+
+    destination.write_text('\n'.join(receptor_out+['TER']+ligand_out+conect+['END'])+'\n',encoding='utf-8')
+    return destination
 
 def prepare_protonated_complex(complex_pdb: Path, destination: Path, *, runner=subprocess.run) -> Path:
     destination.parent.mkdir(parents=True,exist_ok=True)
@@ -47,18 +136,19 @@ def normalize_plip_interactions(reports: list[Path], destination: Path, *, compo
     for report in reports:
         root=ET.parse(report).getroot()
         for section, interaction_type in type_map.items():
-            parent=root.find(f'.//{section}')
-            if parent is None: continue
-            for item in list(parent):
-                chain=_text(item,'reschain'); resname=_text(item,'restype'); resnum=_text(item,'resnr')
-                rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':_text(item,'protisdon') or _text(item,'protisacc'),'ligand_atom':_text(item,'ligisdon') or _text(item,'ligisacc'),'distance_A':_text(item,'dist'),'angle_deg':_text(item,'angle'),'PLIP_source':'PLIP'})
+            for parent in root.findall(f'.//{section}'):
+                for item in list(parent):
+                    chain=_text(item,'reschain'); resname=_text(item,'restype'); resnum=_text(item,'resnr')
+                    rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':_text(item,'protisdon') or _text(item,'protisacc'),'ligand_atom':_text(item,'ligisdon') or _text(item,'ligisacc'),'distance_A':_text(item,'dist'),'angle_deg':_text(item,'angle'),'PLIP_source':'PLIP'})
     destination.parent.mkdir(parents=True,exist_ok=True)
     with destination.open('w',newline='',encoding='utf-8') as fh:
         w=csv.DictWriter(fh,fieldnames=SCHEMA); w.writeheader(); w.writerows(rows)
     return destination
 
 def run_plip_analysis(complex_pdb: Path, work_dir: Path, normalized_csv: Path, *, compound_id='', pose_id='', provenance_path=None, runner=subprocess.run) -> PlipStageOutput:
-    protonated=work_dir/f'{complex_pdb.stem}_protonated.pdb'; protonated=prepare_protonated_complex(complex_pdb,protonated,runner=runner)
+    work_dir.mkdir(parents=True,exist_ok=True)
+    plip_input=materialize_plip_complex(complex_pdb,work_dir/'plip_input_complex.pdb',runner=runner)
+    protonated=work_dir/f'{plip_input.stem}_protonated.pdb'; protonated=prepare_protonated_complex(plip_input,protonated,runner=runner)
     reports=run_plip(protonated,work_dir/'plip',runner=runner)
     normalize_plip_interactions(reports,normalized_csv,compound_id=compound_id,pose_id=pose_id)
     return PlipStageOutput(protonated,reports,normalized_csv,provenance_path,[])
