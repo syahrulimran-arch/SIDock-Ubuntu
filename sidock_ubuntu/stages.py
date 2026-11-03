@@ -159,7 +159,11 @@ def run_finalization_stage(project: Path, evidence: dict | None = None, *, write
         evidence=snapshot_evidence(load_finalization_input(project))
     analysis=project/'analysis'; analysis.mkdir(parents=True,exist_ok=True)
     evidence_tmp=analysis/'evidence.json.tmp'; evidence_tmp.write_text(__import__('json').dumps(evidence,indent=2,sort_keys=True),encoding='utf-8'); evidence_tmp.replace(analysis/'evidence.json')
-    write_results_fn(project); write_dashboard_fn(project)
+    write_results_fn(project)
+    # Pure post-processing: reads evidence/DLG/PLIP; never executes docking.
+    from .scientific_report import write_scientific_report
+    write_scientific_report(project)
+    write_dashboard_fn(project)
     return compliance_fn(project) if compliance_fn else {'status':'NOT_RUN'}
 
 def run_figures_stage(analysis_dir: Path, figures_dir: Path, limit=5):
