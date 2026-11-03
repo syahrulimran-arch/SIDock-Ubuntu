@@ -101,7 +101,7 @@ def test_finalization_labels_optional_failed_validation_as_unvalidated(tmp_path)
 
 
 def test_validation_mode_configuration_is_explicit():
-    assert DEFAULT_CONFIG['validation']['mode'] == 'if_available'
+    assert DEFAULT_CONFIG['validation']['mode'] == 'required'
     config = json.loads(json.dumps(DEFAULT_CONFIG))
     config['validation']['mode'] = 'nonsense'
     assert any('validation.mode' in error for error in validate_config(config))
