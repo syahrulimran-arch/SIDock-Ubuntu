@@ -38,6 +38,32 @@ def list_jobs(project):
         try: result.append(json.loads(line))
         except json.JSONDecodeError: continue
     return result
-def process_alive(pid, identity=None): return bool(pid and process_identity(int(pid)) and (identity is None or process_identity(int(pid))==str(identity)))
+
+def _linux_process_state(pid: int) -> str | None:
+    """Return the one-letter Linux process state from /proc, when available."""
+    try:
+        # /proc/<pid>/stat field 3 is the state. The command name in field 2 may
+        # contain spaces, so split only after the final closing parenthesis.
+        text=Path(f'/proc/{int(pid)}/stat').read_text(encoding='utf-8',errors='replace')
+        tail=text.rsplit(')',1)[1].strip().split()
+        return tail[0] if tail else None
+    except (FileNotFoundError,PermissionError,OSError,ValueError,IndexError):
+        return None
+
+def process_alive(pid, identity=None):
+    if not pid:
+        return False
+    try: pid=int(pid)
+    except (TypeError,ValueError): return False
+    current_identity=process_identity(pid)
+    if not current_identity or (identity is not None and current_identity != str(identity)):
+        return False
+    # A zombie has exited and cannot perform work even though /proc/<pid> still
+    # exists until its parent reaps it. Treat it as dead so GUI reconciliation
+    # does not falsely report RUNNING forever.
+    if _linux_process_state(pid) == 'Z':
+        return False
+    return True
+
 def project_lock(project, job_id, *, blocking=False):
     return project_execution_lock(project, {'interface':'GUI','job_id':job_id})
