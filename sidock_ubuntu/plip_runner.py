@@ -130,6 +130,21 @@ def run_plip(protonated: Path, output_dir: Path, *, runner=subprocess.run) -> li
 def _text(node, name):
     x=node.find(name); return x.text.strip() if x is not None and x.text else ''
 
+
+def _first_text(node, *names):
+    return next((value for name in names if (value := _text(node, name))), '')
+
+
+def _interaction_distance(item, kind):
+    # Use the physical distance definition encoded by PLIP for this contact.
+    # Never substitute H...A for donor...acceptor without an explicit label.
+    if kind == 'hydrogen_bond':
+        return _first_text(item, 'dist_d-a', 'dist_d_a', 'dist_d.a', 'dist')
+    if kind == 'pi-stack':
+        return _first_text(item, 'centdist', 'cent_dist', 'cent-dist', 'dist')
+    return _first_text(item, 'dist')
+
+
 def normalize_plip_interactions(reports: list[Path], destination: Path, *, compound_id='', pose_id='') -> Path:
     rows=[]
     type_map={'hydrogen_bonds':'hydrogen_bond','hydrophobic_interactions':'hydrophobic','pistacking':'pi-stack','pi_cation_interactions':'pi-cation','salt_bridges':'salt_bridge','halogen_bonds':'halogen_bond'}
@@ -139,7 +154,7 @@ def normalize_plip_interactions(reports: list[Path], destination: Path, *, compo
             for parent in root.findall(f'.//{section}'):
                 for item in list(parent):
                     chain=_text(item,'reschain'); resname=_text(item,'restype'); resnum=_text(item,'resnr')
-                    rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':_text(item,'protisdon') or _text(item,'protisacc'),'ligand_atom':_text(item,'ligisdon') or _text(item,'ligisacc'),'distance_A':_text(item,'dist'),'angle_deg':_text(item,'angle'),'PLIP_source':'PLIP'})
+                    rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':_text(item,'protisdon') or _text(item,'protisacc'),'ligand_atom':_text(item,'ligisdon') or _text(item,'ligisacc'),'distance_A':_interaction_distance(item, interaction_type),'angle_deg':_first_text(item,'don_angle','angle'),'PLIP_source':'PLIP'})
     destination.parent.mkdir(parents=True,exist_ok=True)
     with destination.open('w',newline='',encoding='utf-8') as fh:
         w=csv.DictWriter(fh,fieldnames=SCHEMA); w.writeheader(); w.writerows(rows)
