@@ -18,6 +18,35 @@ class StageRunner:
     def __init__(self, project: Path, config: dict, executors: dict | None = None):
         self.project=project; self.config=config; self.executors=executors or {}
 
+    def _validation_mode(self) -> str:
+        mode=str((self.config or {}).get('validation',{}).get('mode','if_available')).lower()
+        return mode if mode in {'required','if_available','skip'} else 'if_available'
+
+    def _write_validation_policy(self, mode: str) -> None:
+        path=self.project/'provenance'/'validation_policy.json'; path.parent.mkdir(parents=True,exist_ok=True)
+        payload={'mode':mode,'rmsd_threshold':(self.config or {}).get('validation',{}).get('rmsd_threshold',2.0)}
+        tmp=path.with_suffix('.json.tmp'); tmp.write_text(json.dumps(payload,indent=2,sort_keys=True),encoding='utf-8'); tmp.replace(path)
+
+    def _persist_skipped_validation(self) -> Path:
+        from .stage_outputs import ValidationStageOutput, save_validation_output
+        from .state import sha256
+        warnings=['UNVALIDATED_DOCKING','NATIVE_VALIDATION_SKIPPED_BY_POLICY']
+        value=ValidationStageOutput(
+            native_dlg=None,
+            minimum_rmsd=None,
+            median_rmsd=None,
+            lowest_energy_rmsd=None,
+            rmsd_threshold=(self.config or {}).get('validation',{}).get('rmsd_threshold',2.0),
+            scientific_status='UNVALIDATED',
+            execution_status='SKIPPED',
+            native_like_pose_count=None,
+            artifacts=[],
+            warnings=warnings,
+        )
+        meta=save_validation_output(self.project,value)
+        update_state(self.project,'VALIDATION','PASS',outputs={str(meta):sha256(meta)},warnings=warnings,result_metadata=str(meta.relative_to(self.project)))
+        return meta
+
     def _trace(self, scope, stage, status, compound=None, attempt=None, error_code=None, started=None):
         path=self.project/'provenance/execution_trace.jsonl'; path.parent.mkdir(parents=True,exist_ok=True)
         row={'timestamp':datetime.now(timezone.utc).isoformat(),'scope':scope,'compound':compound,'stage':stage,'attempt':attempt,'executor':getattr(self.executors.get(stage.lower()),'__name__',stage),'status':status,'duration':(time.time()-started) if started else None,'error_code':error_code}
@@ -28,6 +57,22 @@ class StageRunner:
         state=project_status(self.project); results=[]; passed=set(); downstream_dirty=False
         deps={'RECEPTOR':'REFERENCE','GRID':'RECEPTOR','VALIDATION':'GRID','FINALIZATION':'VALIDATION'}
         for stage in stages:
+            dep=deps.get(stage)
+            if dep and dep not in passed and state.get('stages',{}).get(dep,{}).get('status')!='PASS':
+                update_state(self.project,stage,'BLOCKED',errors=[f'DEPENDENCY_{dep}']); results.append((stage,'BLOCKED')); break
+
+            if stage=='VALIDATION':
+                mode=self._validation_mode(); self._write_validation_policy(mode)
+                if mode=='skip':
+                    started=time.time(); self._persist_skipped_validation()
+                    trace_path=self.project/'provenance/execution_trace.jsonl'; prior=0
+                    if trace_path.exists():
+                        prior=sum(1 for line in trace_path.read_text(encoding='utf-8').splitlines() if json.loads(line).get('scope')=='GLOBAL' and json.loads(line).get('stage')=='VALIDATION')
+                    self._trace('GLOBAL','VALIDATION','SKIPPED',attempt=prior+1,started=started)
+                    results.append(('VALIDATION','PASS')); passed.add('VALIDATION'); downstream_dirty=True
+                    state=project_status(self.project)
+                    continue
+
             current=state.get('stages',{}).get(stage,{}).get('status','PENDING')
             reusable=current=='PASS' and verify_output_hashes(self.project,state['stages'][stage])
             if reusable and stage=='REFERENCE': reusable=verify_input_hashes(self.project,state['stages'][stage])
@@ -41,18 +86,26 @@ class StageRunner:
                     reusable=getattr(loaded,'load_status','VALID')=='VALID'
                 except (FileNotFoundError, ValueError, TypeError):
                     reusable=False
+            if reusable and stage=='VALIDATION':
+                try:
+                    prior_policy=json.loads((self.project/'provenance'/'validation_policy.json').read_text(encoding='utf-8')).get('mode')
+                    reusable=prior_policy==self._validation_mode()
+                except Exception:
+                    reusable=False
             if reusable and not downstream_dirty:
                 passed.add(stage); results.append((stage,'REUSED')); continue
-            dep=deps.get(stage)
-            if dep and dep not in passed and state.get('stages',{}).get(dep,{}).get('status')!='PASS':
-                update_state(self.project,stage,'BLOCKED',errors=[f'DEPENDENCY_{dep}']); results.append((stage,'BLOCKED')); break
             fn=self.executors.get(stage.lower()) or self.executors.get(stage)
             if fn is None: update_state(self.project,stage,'BLOCKED',errors=['MISSING_EXECUTOR']); results.append((stage,'BLOCKED')); break
             started=time.time(); update_state(self.project,stage,'RUNNING')
             try: raw=fn(); r=raw if isinstance(raw,StageResult) else StageResult('PASS',raw if isinstance(raw,dict) else {})
             except Exception as exc: r=StageResult('FAIL',error_code='E999',error_message=str(exc))
             persisted=project_status(self.project).get('stages',{}).get(stage,{})
-            update_state(self.project,stage,r.status,outputs=persisted.get('output_hashes',{}),errors=[x for x in (getattr(r,'error_code',None),getattr(r,'error_message',None)) if x],result_metadata=persisted.get('result_metadata'))
+            warnings=[]
+            if stage=='VALIDATION' and self._validation_mode()=='if_available' and r.status=='PASS':
+                out=r.outputs or {}; scientific=out.get('scientific_status',out.get('status'))
+                if scientific not in {None,'PASS'}:
+                    warnings=['UNVALIDATED_DOCKING','NATIVE_VALIDATION_FAILED_CONTINUING_BY_POLICY']
+            update_state(self.project,stage,r.status,outputs=persisted.get('output_hashes',{}),errors=[x for x in (getattr(r,'error_code',None),getattr(r,'error_message',None)) if x],warnings=warnings,result_metadata=persisted.get('result_metadata'))
             trace_path=self.project/'provenance/execution_trace.jsonl'; prior=0
             if trace_path.exists():
                 prior=sum(1 for line in trace_path.read_text(encoding='utf-8').splitlines() if json.loads(line).get('scope')=='GLOBAL' and json.loads(line).get('stage')==stage)
@@ -60,6 +113,7 @@ class StageRunner:
             if r.status!='PASS': break
             passed.add(stage)
             downstream_dirty=True
+            state=project_status(self.project)
         return results
 
     def plan(self, compounds: list[str], *, failed_only=False, force=False) -> dict:
@@ -72,16 +126,19 @@ class StageRunner:
     def _run_compound_unlocked(self, compound: str, *, failed_only=False, force=False) -> list[tuple[str,str]]:
         state=project_status(self.project); rec=state.get('compounds',{}).get(compound)
         if rec is None: return [('compound','MISSING')]
-        global_validation=state.get('stages',{}).get('VALIDATION')
-        # Legacy compound-only fixtures have no executed global validation yet.
-        # Once validation is explicitly recorded, it gates compound science.
+        global_validation=state.get('stages',{}).get('VALIDATION'); mode=self._validation_mode()
+        # Validation execution errors still block. A scientific RMSD failure is
+        # only a hard gate in required mode; other modes preserve it as an
+        # explicit UNVALIDATED warning while allowing exploratory docking.
         if global_validation is not None and global_validation.get('status') in {'FAIL','BLOCKED','STALE'}:
             return [('preparation','BLOCKED')]
-        if global_validation is not None and global_validation.get('status')=='PASS':
+        if global_validation is not None and global_validation.get('status')=='PASS' and mode!='skip':
             try:
                 from .stage_outputs import load_validation_output
                 validation=load_validation_output(self.project)
-                if getattr(validation,'load_status','STALE')!='VALID' or validation.scientific_status!='PASS':
+                if getattr(validation,'load_status','STALE')!='VALID':
+                    return [('preparation','BLOCKED')]
+                if mode=='required' and validation.scientific_status!='PASS':
                     return [('preparation','BLOCKED')]
             except (FileNotFoundError, ValueError, TypeError):
                 return [('preparation','BLOCKED')]
