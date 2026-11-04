@@ -327,3 +327,60 @@ def test_standard_meeko_button_is_disabled_but_exploratory_remains_available(tmp
     assert "receptor_metal_free" in page
     import re
     assert re.search(r"<button[^>]*disabled[^>]*>Prepare receptor using Meeko</button>", page)
+
+
+
+def test_step2_does_not_assume_4ubp_or_hae_for_an_unrelated_protein(tmp_path):
+    """Protein-specific site text must be derived from the reviewed components."""
+    from sidock_ubuntu.guided_ui import step2
+
+    project = new_project(tmp_path)
+    protein = project / "input/protein.pdb"
+    raw = protein.read_text()
+    raw = raw.replace("4UBP", "7ABC")
+    raw = "".join(
+        line for line in raw.splitlines(keepends=True)
+        if not (line.startswith("HETATM")
+                and line[17:20].strip() in {"HAE", "NI"})
+    )
+    protein.write_text(raw)
+
+    html = step2(project)
+    assert "4UBP" not in html
+    assert "HAE" not in html
+    assert "nickel-dependent binding" not in html
+    assert "ACE:A:0" in html
+
+    select_protein(
+        project, ligand_key="ACE:A:0", remove_groups=[],
+        remove_waters=False, acknowledge_non_ligand_component=True,
+    )
+    html = step2(project)
+    assert "Grid-reference caution:" in html
+    assert "POTENTIAL_PROTEIN_CAP" in html
+    assert "4UBP" not in html
+    assert "HAE" not in html
+    assert "Reconstruct crystallographic nickel centre" not in html
+
+
+def test_step2_nonmetal_protein_has_normal_meeko_path(tmp_path):
+    """No metal means no Ni-specific preparation UI or forced model."""
+    from sidock_ubuntu.guided_ui import step2
+
+    project = new_project(tmp_path)
+    source = project / "input/protein.pdb"
+    lines = source.read_text().splitlines()
+    source.write_text("\n".join(
+        line for line in lines
+        if not (line.startswith("HETATM")
+                and line[17:20].strip() in {"NI", "HAE"})
+    ) + "\n")
+    select_protein(
+        project, ligand_key=None, remove_groups=[],
+        center=(10.0, 20.0, 30.0), remove_waters=True,
+    )
+    html = step2(project)
+    assert "Prepare receptor using Meeko" in html
+    assert "receptor_ni_intermediate" not in html
+    assert "receptor_metal_free" not in html
+    assert "Standard Meeko is disabled" not in html
