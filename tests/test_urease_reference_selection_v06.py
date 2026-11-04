@@ -58,3 +58,20 @@ def test_backbone_excluded_even_without_modres(tmp_path):
     _write_sample(pdb)
     pdb.write_text("\n".join(line for line in pdb.read_text().splitlines() if not line.startswith("MODRES")) + "\n")
     assert choose_reference_ligand(pdb).key == "HAE:C:800"
+
+
+def test_reference_correction_dry_run_does_not_mutate_files(tmp_path):
+    import json
+    from sidock_ubuntu.reference_repair import repair_reference
+    project = tmp_path / "case"
+    (project / "input").mkdir(parents=True)
+    pdb = project / "input/protein.pdb"
+    _write_sample(pdb)
+    (project / "project.json").write_text(json.dumps({"receptor_source": str(pdb)}))
+    (project / "project_state.json").write_text(json.dumps({"stages": {"REFERENCE": {"status": "PASS"}}, "compounds": {}}))
+    old_bytes = (project / "project_state.json").read_bytes()
+    data = repair_reference(project, expected="HAE:C:800")
+    assert data["proposed_reference"] == "HAE:C:800"
+    assert data["applied"] is False
+    assert (project / "project_state.json").read_bytes() == old_bytes
+    assert not (project / "provenance").exists()
