@@ -279,6 +279,14 @@ def step3(project: Path) -> str:
             for name in profile["names"]
         ) + "</table></details>"
     )
+    existing_prepared = project / "ligands/prepared"
+    if existing_prepared.is_dir() and any(existing_prepared.glob("*.pdbqt")):
+        html_bits.append(action(
+            project, "reuse_compounds",
+            "Reuse existing project PDBQT files (no minimization)",
+            disabled=bool(profile["errors"]) or not approved(project, 2)
+            or job.get("status") == "RUNNING"
+        ))
     html_bits.append(action(
         project, "prepare", "Minimize and prepare compounds",
         disabled=bool(profile["errors"]) or not approved(project, 2)
