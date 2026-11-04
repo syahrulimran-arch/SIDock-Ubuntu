@@ -174,8 +174,8 @@ def create_app(workspace=None):
     @app.post('/projects/{project_id}/guided/receptor-import')
     async def guided_receptor_import(project_id:str, upload: UploadFile|None=File(None),
                                      existing_path:str|None=Form(None)):
-        from .manual_docking import install_receptor, root as manual_root, job_status
-        from .guided_workflow import _json
+        from .manual_docking import root as manual_root, job_status
+        from .guided_workflow import _json, install_reviewed_receptor
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
         if job_status(project).get('status') == 'RUNNING':
@@ -198,15 +198,15 @@ def create_app(workspace=None):
                             destination.unlink(missing_ok=True)
                             raise ValueError('Uploaded receptor exceeds size limit')
                         out.write(chunk)
-                install_receptor(project,destination)
+                install_reviewed_receptor(project,destination)
             elif existing_path:
                 path=(project/existing_path.strip()).resolve()
                 if not path.is_relative_to(project.resolve()):
                     raise ValueError('PDBQT must be inside this project')
-                install_receptor(project,path)
+                install_reviewed_receptor(project,path)
             else:
                 raise ValueError('Select a prepared PDBQT or provide an existing project-relative path')
-        except (ValueError,OSError) as exc:
+        except (ValueError,RuntimeError,OSError) as exc:
             raise HTTPException(status_code=400,detail=str(exc))
         return RedirectResponse(f'/projects/{project_id}/guided/2',status_code=303)
 
