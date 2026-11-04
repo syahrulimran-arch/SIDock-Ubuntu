@@ -220,6 +220,11 @@ def step2(project: Path) -> str:
             "<h3>Prepare receptor PDBQT</h3>"
             "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
             "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
+            + ("<p class='error'>This cleaned PDB retains nickel. Standard Meeko receptor preparation "
+               "may reject the metal ions. You may import a professionally parameterized metal-aware "
+               "PDBQT instead; do not automatically delete catalytic ions.</p>"
+               if any(g["code"] == "NI" and g["key"] not in choice.get("removed_residues", [])
+                      for g in profile.get("groups", [])) else "")
             + action(project, "receptor", "Prepare receptor using Meeko",
                      disabled=job.get("status") == "RUNNING")
         )
@@ -248,6 +253,35 @@ def step2(project: Path) -> str:
                 "under Step 4 and cannot be reported as native metal-site docking.</p>"
             )
     content.append(job_view(project))
+    from .receptor_diagnostics import read_receptor_diagnostics
+    diagnostics = read_receptor_diagnostics(project)
+    if diagnostics.get("available") and (
+        job.get("action") == "receptor" and job.get("status") in {"FAILED", "EXITED"}
+    ):
+        content.append(
+            "<h3>Why Meeko failed</h3>"
+            "<p>The error below is read from this project's receptor_meeko.log. "
+            "No receptor residues have been changed automatically.</p>"
+        )
+        if diagnostics["unknown_components"]:
+            content.append(
+                "<p><b>Unsupported component templates:</b> "
+                + e(", ".join(diagnostics["unknown_components"])) + "</p>"
+            )
+        if diagnostics["template_mismatches"]:
+            content.append(
+                "<p><b>Unmatched residues:</b> "
+                + e(", ".join(diagnostics["template_mismatches"])) + "</p>"
+            )
+        for note in diagnostics["warnings"]:
+            content.append(f"<p class='error'>{e(note)}</p>")
+        content.append(
+            "<details open><summary>Actual Meeko output (last 70 nonblank lines)</summary>"
+            f"<pre style='max-height:28rem;overflow:auto;white-space:pre-wrap'>"
+            f"{e(diagnostics['last_log_lines'])}</pre></details>"
+            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/receptor_meeko.log'>"
+            "Download complete Meeko log</a></p>"
+        )
     content.append(
         "<p>Review the PDBQT and retained cofactors. Approval never runs docking.</p>"
         + approve_form(project, 2)
