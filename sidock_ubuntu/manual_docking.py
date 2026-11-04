@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import json
 import math
+import fcntl
+from contextlib import contextmanager
 import os
 import shutil
 import subprocess
@@ -328,40 +330,48 @@ def job_path(project: Path) -> Path:
     return root(project) / "job.json"
 
 
+@contextmanager
+def _job_file_lock(project: Path):
+    """Serialize child status and parent launch writes across processes."""
+    folder = root(project)
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / ".job.lock").open("a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def job_status(project: Path) -> dict:
+    from .job_store import process_alive
     job = _read_json(job_path(project))
     if not job:
         return {}
-    if job.get("status") == "RUNNING":
-        pid = job.get("pid")
-        try:
-            os.kill(int(pid), 0)
-        except (ValueError, TypeError, ProcessLookupError):
-            job["status"] = "EXITED"
-        except PermissionError:
-            pass
+    if job.get("status") == "RUNNING" and not process_alive(job.get("pid")):
+        return {**job, "status": "EXITED", "error": "Manual worker exited without a recorded completion"}
     return job
 
 
 def launch(project: Path, action: str) -> dict:
     if action not in {"prepare", "receptor", "grid", "dock"}:
         raise ValueError("Unsupported manual action")
-    if job_status(project).get("status") == "RUNNING":
-        raise RuntimeError("A manual SIDock action is already running")
-    folder = root(project)
-    folder.mkdir(parents=True, exist_ok=True)
-    logfile = folder / "manual_worker.log"
-    with logfile.open("a", encoding="utf-8") as out:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "sidock_ubuntu.manual_docking",
-             str(Path(project).resolve()), action],
-            cwd=str(Path(__file__).resolve().parent.parent),
-            stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    job = {"action": action, "status": "RUNNING", "pid": proc.pid,
-           "started": datetime.now(timezone.utc).isoformat()}
-    _save_json(job_path(project), job)
+    with _job_file_lock(project):
+        if job_status(project).get("status") == "RUNNING":
+            raise RuntimeError("A manual SIDock action is already running")
+        folder = root(project)
+        logfile = folder / "manual_worker.log"
+        with logfile.open("a", encoding="utf-8") as out:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "sidock_ubuntu.manual_docking",
+                 str(Path(project).resolve()), action],
+                cwd=str(Path(__file__).resolve().parent.parent),
+                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        job = {"action": action, "status": "RUNNING", "pid": proc.pid,
+               "started": datetime.now(timezone.utc).isoformat()}
+        _save_json(job_path(project), job)
     return job
 
 
@@ -369,17 +379,21 @@ def execute(project: Path, action: str) -> dict:
     path = job_path(project)
     try:
         from .guided_workflow import prepare_protein
-        results = {"prepare": prepare, "receptor": prepare_protein, "grid": grid, "dock": dock}[action](project)
-        job = _read_json(path)
-        job.update({"status": "SUCCEEDED", "result": results,
-                    "finished": datetime.now(timezone.utc).isoformat()})
-        _save_json(path, job)
+        results = {"prepare": prepare, "receptor": prepare_protein,
+                   "grid": grid, "dock": dock}[action](project)
+        with _job_file_lock(project):
+            job = _read_json(path)
+            job.update({"status": "SUCCEEDED", "result": results,
+                        "error": None,
+                        "finished": datetime.now(timezone.utc).isoformat()})
+            _save_json(path, job)
         return results
     except Exception as exc:
-        job = _read_json(path)
-        job.update({"status": "FAILED", "error": str(exc),
-                    "finished": datetime.now(timezone.utc).isoformat()})
-        _save_json(path, job)
+        with _job_file_lock(project):
+            job = _read_json(path)
+            job.update({"status": "FAILED", "error": str(exc),
+                        "finished": datetime.now(timezone.utc).isoformat()})
+            _save_json(path, job)
         raise
 
 
