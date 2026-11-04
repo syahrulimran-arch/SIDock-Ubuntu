@@ -45,3 +45,22 @@ def test_missing_meeko_log_not_misdiagnosed(tmp_path):
     result = read_receptor_diagnostics(tmp_path)
     assert result["available"] is False
     assert "unknown_components" not in result
+
+
+
+def test_exploratory_failure_reads_its_own_log_not_old_standard_failure(tmp_path):
+    folder = tmp_path / "manual_docking/logs"
+    folder.mkdir(parents=True)
+    (folder/"receptor_meeko.log").write_text(
+        "Template generation failed for unknown residues: {'NI'}\n",
+        encoding="utf-8",
+    )
+    (folder/"receptor_meeko_metal_free.log").write_text(
+        "Template matching failed for: ['A:0', 'C:326']\n",
+        encoding="utf-8",
+    )
+    first = read_receptor_diagnostics(tmp_path)
+    second = read_receptor_diagnostics(tmp_path, exploratory_metal_free=True)
+    assert first["unknown_components"] == ["NI"]
+    assert second["unknown_components"] == []
+    assert second["template_mismatches"] == ["A:0", "C:326"]
