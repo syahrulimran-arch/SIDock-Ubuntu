@@ -90,7 +90,20 @@ def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_b
     candidates = [base.with_suffix(".pdbqt"), Path(str(base) + ".pdbqt")]
     out = next((p for p in candidates if p.exists()), None)
     if code != 0 or out is None:
-        raise RuntimeError(f"Receptor preparation failed; see {log_path}")
+        from .receptor_diagnostics import analyze_meeko_log
+        log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+        detail = analyze_meeko_log(log)
+        reasons = []
+        if detail["unknown_components"]:
+            reasons.append("unknown components: " + ", ".join(detail["unknown_components"]))
+        if detail["template_mismatches"]:
+            reasons.append("unmatched residues: " + ", ".join(detail["template_mismatches"]))
+        if not reasons:
+            reasons.append("Meeko exited without a valid PDBQT; inspect its output")
+        raise RuntimeError(
+            f"Receptor preparation failed (Meeko exit={code}; {'; '.join(reasons)}). "
+            f"Open Step 2 for the detailed explanation or see {log_path}"
+        )
     return out
 
 
