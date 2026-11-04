@@ -329,6 +329,18 @@ def step2(project: Path) -> str:
             f"<p><b>Prepared receptor:</b> {e(receptor)} "
             f"({receptor.stat().st_size:,} bytes)</p>"
         )
+        metal_audit_file = manual_root(project) / "inputs/Ni_reconstruction_audit.json"
+        receptor_review = _json(manual_root(project) / "inputs/receptor_review.json")
+        if receptor_review.get("metal_model") and metal_audit_file.is_file():
+            metal_audit = _json(metal_audit_file)
+            content.append(
+                "<p><b>Nickel reconstructed:</b> "
+                f"{e(metal_audit.get('NI_count'))} ions. "
+                f"Ni–Ni distance: {e(metal_audit.get('Ni_Ni_distance_A'))} Å. "
+                "<b>Fixed-centre nonbonded model — NOT validated by native redocking.</b> "
+                f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/Ni_reconstruction_audit.json'>"
+                "Review metal parameters, charges and sources</a></p>"
+            )
         original_metals = _input_metals(project)
         prepared_metals = _pdbqt_metals(project)
         if original_metals and prepared_metals != original_metals:
