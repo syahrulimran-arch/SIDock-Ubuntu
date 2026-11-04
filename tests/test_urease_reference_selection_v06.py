@@ -75,3 +75,28 @@ def test_reference_correction_dry_run_does_not_mutate_files(tmp_path):
     assert data["applied"] is False
     assert (project / "project_state.json").read_bytes() == old_bytes
     assert not (project / "provenance").exists()
+
+
+def test_explicit_reference_override_accepts_unknown_ccd_mapping():
+    # Missing optional CCD is not evidence of an invalid crystallographic inhibitor.
+    from sidock_ubuntu.reference import select_reference_instance
+    candidate = {
+        "key": "HAE:C:800", "ligand_code": "HAE", "chain": "C",
+        "residue_number": "800", "mapping_fraction": None,
+        "atom_count": 5, "heavy_atom_count": 5,
+    }
+    selected = select_reference_instance([candidate], override="HAE:C:800")
+    assert selected["selected"]["key"] == "HAE:C:800"
+    assert selected["selected"]["mapping_fraction"] is None
+    assert selected["selected"]["selection_method"] == "EXPLICIT_OVERRIDE"
+
+
+def test_explicit_reference_override_rejects_confirmed_zero_mapping():
+    import pytest
+    from sidock_ubuntu.reference import select_reference_instance
+    candidate = {
+        "key": "HAE:C:800", "ligand_code": "HAE", "chain": "C",
+        "residue_number": "800", "mapping_fraction": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="INVALID_REFERENCE_OVERRIDE"):
+        select_reference_instance([candidate], override="HAE:C:800")
