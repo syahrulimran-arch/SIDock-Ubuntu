@@ -48,7 +48,7 @@ def repair_reference(project: Path, *, expected: str, apply: bool = False) -> di
         backup.mkdir(parents=True, exist_ok=False)
         for relative in ("project_state.json", "receptor/reference_ligand.pdb",
                          "validation/reference_selection.json", "validation/reference_ligand_candidates.csv",
-                         "validation/reference_stage.json"):
+                         "validation/reference_stage.json", ".gui_reference_override"):
             src = project / relative
             if src.is_file():
                 dest = backup / relative
@@ -69,6 +69,7 @@ def repair_reference(project: Path, *, expected: str, apply: bool = False) -> di
                        for line in ref.read_text().splitlines() if line.startswith(("ATOM", "HETATM"))), None)
         if actual != expected:
             raise RuntimeError(f"Post-repair reference mismatch: expected={expected}; found={actual}")
+        (project / ".gui_reference_override").write_text(expected, encoding="utf-8")
         report.update({"applied": True, "backup": str(backup), "current_reference": actual,
                        "receptor_preparation_performed": False, "metal_parameterization_performed": False})
         (project / "provenance/reference_correction_audit.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
