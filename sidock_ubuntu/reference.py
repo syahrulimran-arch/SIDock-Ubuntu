@@ -159,7 +159,18 @@ def select_reference_instance(candidates:list[dict], override:str|None=None) -> 
     confidence=confidence_for_candidates(candidates)
     if override:
         selected=next((x for x in candidates if x.get('key')==override or x.get('instance_id')==override),None)
-        if selected is None or float(selected.get('mapping_fraction',1) or 0)<=0: raise RuntimeError('E101 INVALID_REFERENCE_OVERRIDE')
+        if selected is None: raise RuntimeError('E101 INVALID_REFERENCE_OVERRIDE')
+        # Missing CCD mapping is unknown, not a measured zero. A user may
+        # explicitly select an experimental ligand whose CCD file was not
+        # supplied; retain that lack of chemistry verification in metadata.
+        mapping_fraction=selected.get('mapping_fraction')
+        if mapping_fraction is not None:
+            try:
+                fraction=float(mapping_fraction)
+            except (TypeError, ValueError):
+                raise RuntimeError('E101 INVALID_REFERENCE_OVERRIDE: malformed CCD mapping fraction')
+            if not 0 < fraction <= 1:
+                raise RuntimeError('E101 INVALID_REFERENCE_OVERRIDE: invalid CCD mapping')
         selected={**selected,'selection_method':'EXPLICIT_OVERRIDE','selected':True}
     else:
         if confidence=='LOW': raise RuntimeError('E101 REFERENCE_SELECTION_LOW_CONFIDENCE')
