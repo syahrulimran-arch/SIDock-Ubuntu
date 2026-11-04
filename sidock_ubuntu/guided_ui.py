@@ -329,6 +329,21 @@ def step4(project: Path) -> str:
         + "".join(fields) + exploratory
         + "<button>Save docking setup</button></form>"
     )
+    from .manual_docking import parameter_file_path
+    parameter = parameter_file_path(project)
+    html_bits.append(
+        "<h3>Optional custom AutoDock4 force-field library</h3>"
+        "<p>For nonstandard atoms or metals such as Ni, supply a fully specified, scientifically "
+        "justified AD4 parameter library. SIDock applies the same file to AutoGrid and AutoDock. "
+        "It does not invent charges or metal parameters.</p>"
+        + (f"<p>Current custom library: {e(parameter.name)} ({parameter.stat().st_size:,} bytes)</p>"
+           if parameter else "<p>Using standard built-in AutoDock4 parameters.</p>")
+        + f"<form method='post' action='/projects/{e(project.name)}/guided/parameters' "
+        "enctype='multipart/form-data'>"
+        "<label>Upload complete AD4 parameter file <input type='file' name='upload' accept='.dat,.txt'></label>"
+        "<label>Or existing project-local path <input name='existing_path' placeholder='input/custom_ad4_parameters.dat'></label>"
+        "<button>Use custom parameter library</button></form>"
+    )
     html_bits.append(action(
         project, "grid", "Generate AutoGrid4 maps (reuse if unchanged)",
         disabled=not (approved(project, 2) and approved(project, 3))
