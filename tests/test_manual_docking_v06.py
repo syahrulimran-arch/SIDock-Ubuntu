@@ -102,3 +102,15 @@ def test_grid_changes_create_new_run_identity_without_overwriting(tmp_path):
     save_settings(p, t)
     changed, _ = _run_identity(p)
     assert original != changed
+
+
+def test_incomplete_dlg_energy_is_not_treated_as_finished(tmp_path):
+    from sidock_ubuntu.manual_docking import complete_dlg_energy
+    dlg=tmp_path/"ligand.dlg"
+    dlg.write_text("Estimated Free Energy of Binding = -7.20 kcal/mol\n")
+    assert complete_dlg_energy(dlg) is None
+    dlg.write_text(
+        "Estimated Free Energy of Binding = -7.20 kcal/mol\n"
+        "autodock4: Successful Completion\n"
+    )
+    assert complete_dlg_energy(dlg) == -7.2
