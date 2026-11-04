@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 
 from .guided_workflow import (
@@ -17,6 +18,10 @@ from .manual_docking import (
 
 def e(value) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _compound_file_id(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name).strip())
 
 
 def flow_nav(project: Path, selected: int) -> str:
@@ -261,11 +266,11 @@ def step3(project: Path) -> str:
         "<tr><th>Compound ID</th><th>Minimized SDF</th><th>Docking PDBQT</th></tr>"
         + "".join(
             "<tr><td>" + e(name) + "</td><td>"
-            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/source/{e(name)}.sdf'>View</a>"
-               if (manual_root(project)/"ligands/source"/(name+".sdf")).is_file() else "Not prepared")
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/source/{e(_compound_file_id(name))}.sdf'>View</a>"
+               if (manual_root(project)/"ligands/source"/(_compound_file_id(name)+".sdf")).is_file() else "Not prepared")
             + "</td><td>"
-            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/prepared/{e(name)}.pdbqt'>View</a>"
-               if (manual_root(project)/"ligands/prepared"/(name+".pdbqt")).is_file() else "Not prepared")
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/prepared/{e(_compound_file_id(name))}.pdbqt'>View</a>"
+               if (manual_root(project)/"ligands/prepared"/(_compound_file_id(name)+".pdbqt")).is_file() else "Not prepared")
             + "</td></tr>"
             for name in profile["names"]
         ) + "</table></details>"
