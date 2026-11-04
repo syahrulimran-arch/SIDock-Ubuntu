@@ -256,6 +256,42 @@ def create_app(workspace=None):
             raise HTTPException(status_code=400,detail=str(exc))
         return RedirectResponse(f'/projects/{project_id}/guided/4',status_code=303)
 
+    @app.post('/projects/{project_id}/guided/parameters')
+    async def guided_custom_parameters(project_id: str, upload: UploadFile|None=File(None),
+                                       existing_path: str|None=Form(None)):
+        from .manual_docking import install_parameter_file, root as manual_root, job_status
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        if job_status(project).get('status') == 'RUNNING':
+            raise HTTPException(status_code=409, detail='Manual task running; parameters cannot be replaced')
+        try:
+            if upload is not None and upload.filename:
+                if Path(upload.filename).suffix.lower() not in ('.dat','.txt'):
+                    raise ValueError('Expected an AutoDock4 .dat or .txt force-field library')
+                path=manual_root(project)/'uploaded_custom_parameters.dat'
+                path.parent.mkdir(parents=True,exist_ok=True)
+                total=0
+                with path.open('wb') as out:
+                    while True:
+                        chunk=await upload.read(1024*1024)
+                        if not chunk: break
+                        total+=len(chunk)
+                        if total>2_000_000:
+                            path.unlink(missing_ok=True)
+                            raise ValueError('Parameter file exceeds 2 MB')
+                        out.write(chunk)
+                install_parameter_file(project,path)
+            elif existing_path and existing_path.strip():
+                source=(project/existing_path.strip()).resolve()
+                if not source.is_relative_to(project.resolve()):
+                    raise ValueError('Parameter file must be inside this project')
+                install_parameter_file(project,source)
+            else:
+                raise ValueError('Select a complete AutoDock4 parameter library')
+        except (ValueError,RuntimeError,OSError,UnicodeError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/4',status_code=303)
+
     @app.post('/projects/{project_id}/guided/approve')
     def guided_approve(project_id:str, step:int=Form(...)):
         from .guided_workflow import approve
