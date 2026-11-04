@@ -250,6 +250,70 @@ def step2(project: Path) -> str:
                 f"<button type='submit' {'disabled' if job.get('status') == 'RUNNING' else ''}>"
                 "Prepare exploratory metal-free receptor (no docking)</button></form>"
             )
+        if nickel_remains:
+            from .nickel_reconstruction import sites as nickel_sites
+            from .manual_docking import parameter_file_path
+            site_list = nickel_sites(project)
+            intermediate = manual_root(project) / "inputs/protein_meeko_Ni_intermediate.pdbqt"
+            metadata = _json(manual_root(project) / "inputs/Ni_intermediate.json")
+            validated_intermediate = (
+                intermediate.is_file()
+                and metadata.get("reviewed_clean_sha256") == choice.get("clean_sha256")
+            )
+            custom = parameter_file_path(project)
+            content.append(
+                "<h3>Reconstruct crystallographic nickel centre (Ni retained)</h3>"
+                "<p>Step A prepares the protein with nickel omitted from a temporary "
+                "Meeko input; this is <b>not</b> the final metal-free receptor. "
+                "Step B restores the Ni ions at their exact crystallographic coordinates. "
+                "It requires a complete, scientifically sourced AutoDock4 parameter library "
+                "and individually specified Ni partial charges; neither is guessed.</p>"
+                + action(project, "receptor_ni_intermediate",
+                         "A. Prepare Ni-free Meeko intermediate (does not install receptor)",
+                         disabled=job.get("status") == "RUNNING")
+            )
+            content.append(
+                f"<p><b>Intermediate:</b> "
+                f"{'Ready for metal reconstruction' if validated_intermediate else 'Not prepared / stale'}</p>"
+                "<p><b>Ni coordinates preserved from the reviewed PDB:</b></p>"
+                "<table><tr><th>Site</th><th>X (Å)</th><th>Y (Å)</th><th>Z (Å)</th></tr>"
+                + "".join(
+                    f"<tr><td>{e(x['key'])}</td>"
+                    + "".join(f"<td>{v:.3f}</td>" for v in x["xyz"])
+                    + "</tr>" for x in site_list
+                ) + "</table>"
+            )
+            content.append(
+                f"<p>Custom AD4 parameter library: "
+                f"{e(custom.name) if custom else 'Missing — upload a fully specified library below'}</p>"
+                f"<form method='post' action='/projects/{e(project.name)}/guided/parameters' "
+                "enctype='multipart/form-data'>"
+                "<input type='hidden' name='next_step' value='2'>"
+                "<label>Upload complete AutoDock4 parameter library (.dat) "
+                "<input type='file' name='upload' accept='.dat,.txt'></label>"
+                "<label>Or select existing project-local .dat file "
+                "<input name='existing_path' placeholder='input/AD4_nickel_parameters.dat'></label>"
+                "<button>Use parameter library</button></form>"
+            )
+            content.append(
+                f"<form method='post' action='/projects/{e(project.name)}/guided/ni-reconstruct'>"
+                "<p><b>B. Reconstruct nickel from crystallographic coordinates</b></p>"
+                "<label>Nickel AutoDock4 type (must match atom_par in your library) "
+                "<input type='text' name='atom_type' maxlength='2' placeholder='Ni' required></label>"
+                "<label>Ni partial charges (e), individually and explicitly assigned "
+                "<input name='site_charges' required "
+                f"placeholder='{e(','.join(x['key'] + '=...' for x in site_list))}'></label>"
+                "<label>Parameter source / reference "
+                "<input name='parameter_source' required placeholder='Publication/DOI and parameterization method'></label>"
+                "<label>Charge source / reference "
+                "<input name='charge_source' required placeholder='Publication/DOI or documented charge model'></label>"
+                "<label><input type='checkbox' required name='confirm_nickel_model' "
+                "value='I_ACKNOWLEDGE_NI_MODEL'> "
+                "I acknowledge that a fixed, nonbonded Ni model requires scientific review "
+                "and native HAE redocking before biological interpretation.</label>"
+                f"<button type='submit' {'disabled' if not validated_intermediate or not custom or job.get('status') == 'RUNNING' else ''}>"
+                "B. Restore Ni and install reviewed receptor (no docking)</button></form>"
+            )
         content.append(
             "<p><b>Alternatively:</b> import a previously prepared and chemically verified "
             "PDBQT. This is useful for metal-dependent proteins.</p>"
