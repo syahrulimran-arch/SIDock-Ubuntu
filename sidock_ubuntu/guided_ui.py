@@ -228,6 +228,24 @@ def step2(project: Path) -> str:
             + action(project, "receptor", "Prepare receptor using Meeko",
                      disabled=job.get("status") == "RUNNING")
         )
+        if any(g["code"] == "NI" and g["key"] not in choice.get("removed_residues", [])
+               for g in profile.get("groups", [])):
+            content.append(
+                "<h3>Optional: prepare a metal-free exploratory receptor</h3>"
+                "<p>Meeko does not support NI in this receptor. This explicit option generates "
+                "a separate temporary PDB without the two nickel ions; it preserves your "
+                "original PDB and reviewed cleaned PDB, records a removal audit, and never "
+                "runs docking. <b>This is not suitable for interpreting nickel-dependent "
+                "urease inhibition.</b></p>"
+                f"<form method='post' action='/projects/{e(project.name)}/guided/action'>"
+                "<input type='hidden' name='action' value='receptor_metal_free'>"
+                "<label><input type='checkbox' required name='confirm_metal_free' "
+                "value='I_ACKNOWLEDGE_METAL_FREE'> "
+                "I explicitly approve generating a metal-free receptor for exploratory calculations; "
+                "I understand nickel-dependent interactions cannot be evaluated.</label>"
+                f"<button type='submit' {'disabled' if job.get('status') == 'RUNNING' else ''}>"
+                "Prepare exploratory metal-free receptor (no docking)</button></form>"
+            )
         content.append(
             "<p><b>Alternatively:</b> import a previously prepared and chemically verified "
             "PDBQT. This is useful for metal-dependent proteins.</p>"
