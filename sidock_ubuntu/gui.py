@@ -133,10 +133,190 @@ def create_app(workspace=None):
                 f"<a href='/projects/{h.escape(project_id)}/reference'>reference candidates</a> "
                 "before retrying. Intake metadata alone is not a selected ligand.</p>"
             )
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Docking setup: <b>{h.escape(str(dash.get('ga_runs',10)))}</b> GA runs per compound; parallel jobs: <b>{h.escape(str(dash.get('parallel_jobs','auto')))}</b>; detected CPUs: <b>{h.escape(str(dash.get('detected_cpus',1)))}</b>.</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference: {reference_artifacts_status}</p>{diagnostics}<nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Docking setup: <b>{h.escape(str(dash.get('ga_runs',10)))}</b> GA runs per compound; parallel jobs: <b>{h.escape(str(dash.get('parallel_jobs','auto')))}</b>; detected CPUs: <b>{h.escape(str(dash.get('detected_cpus',1)))}</b>.</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference: {reference_artifacts_status}</p>{diagnostics}<nav><a href='/projects/{project_id}/manual'>Manual Docking</a><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
         if final=='BLOCKED': body += '<p class="error">Strict native redocking validation blocked compound docking.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
+    @app.get('/projects/{project_id}/manual', response_class=HTMLResponse)
+    def manual_docking_page(project_id):
+        from .manual_docking import (
+            settings as manual_settings, root as manual_root, job_status,
+            active_run, prepared_ligands, _input_metals, _pdbqt_metals,
+        )
+        import html as h
+        p = get_project(project_id)
+        t = manual_settings(p)
+        m = manual_root(p)
+        receptor = m / 'receptor.pdbqt'
+        original_metals = _input_metals(p)
+        receptor_metals = _pdbqt_metals(p)
+        job = job_status(p)
+        run = active_run(p)
+        ligands = prepared_ligands(p)
+        exp = lambda value: h.escape(str(value), quote=True)
+        fields = ''.join(
+            f"<label>{label} <input type='number' step='{step}' name='{name}' "
+            f"value='{exp(t[name])}' required></label>"
+            for name, label, step in (
+                ('center_x', 'Center X (Å)', '0.001'),
+                ('center_y', 'Center Y (Å)', '0.001'),
+                ('center_z', 'Center Z (Å)', '0.001'),
+                ('npts_x', 'Grid points X (20–126, even)', '2'),
+                ('npts_y', 'Grid points Y (20–126, even)', '2'),
+                ('npts_z', 'Grid points Z (20–126, even)', '2'),
+                ('spacing', 'Grid spacing (Å)', '0.025'),
+                ('ga_runs', 'GA runs per compound', '1'),
+                ('parallel_jobs', 'Simultaneous AutoDock jobs', '1'),
+                ('ga_num_evals', 'Maximum evaluations', '1'),
+                ('ga_pop_size', 'GA population size', '1'),
+                ('ga_num_generations', 'Maximum generations', '1'),
+            )
+        )
+        metal_warning = (
+            f"<p class='error'><b>Metal audit:</b> the original structure contains {original_metals} Ni ions; "
+            f"the uploaded receptor contains {receptor_metals}. "
+            "A metal-free model is not equivalent to the crystallographic urease active site. "
+            "Any such docking must be explicitly labeled exploratory and cannot validate nickel coordination.</p>"
+            if original_metals and receptor_metals != original_metals else ''
+        )
+        user_warning = (
+            "<p><b>Important:</b> A valid receptor PDBQT must already have chemically appropriate "
+            "charges and atom types. SIDock does not invent nickel parameters. "
+            "This manual workflow does not perform native redocking or certify the receptor.</p>"
+        )
+        action_status = (
+            f"<p><b>Last action:</b> {exp(job.get('action'))}: "
+            f"{exp(job.get('status'))}. {exp(job.get('error',''))}</p>"
+            if job else '<p>No manual action has been launched.</p>'
+        )
+        results = ''
+        if run and run.is_dir():
+            import json as _json
+            grid_file = run / 'grid/production/grid_provenance.json'
+            dlg_files = sorted((run/'docking/dlg').glob('*.dlg'))
+            root_rel = run.relative_to(p).as_posix()
+            results = (
+                f"<p><b>Run ID:</b> {exp(run.name)} "
+                f"| Grid: {'CREATED' if grid_file.exists() else 'NOT CREATED'} "
+                f"| DLG files: {len(dlg_files)}/{len(ligands)}</p>"
+            )
+            if grid_file.exists():
+                results += f"<p><a href='/projects/{project_id}/artifacts/{root_rel}/grid/production/receptor.gpf'>View grid parameters (.gpf)</a></p>"
+            if dlg_files:
+                results += '<details><summary>Docking logs</summary><ul>'
+                for f in dlg_files:
+                    results += (f"<li><a href='/projects/{project_id}/artifacts/"
+                                f"{root_rel}/docking/dlg/{exp(f.name)}'>{exp(f.name)}</a></li>")
+                results += '</ul></details>'
+        sizes = [t[k]*t['spacing'] for k in ('npts_x','npts_y','npts_z')]
+        body = (
+            f"<h1>Manual AutoDock4: {exp(project_id)}</h1>"
+            "<p>This is a separate manual workflow. It does not restart the automatic pipeline "
+            "or discard any existing project docking outputs.</p>"
+            "<h2>1. Prepared receptor PDBQT</h2>"
+            f"<p>Current receptor: {exp(receptor) if receptor.is_file() else 'Not imported'}</p>"
+            f"<form method='post' action='/projects/{project_id}/manual/receptor' enctype='multipart/form-data'>"
+            "<label>Upload prepared receptor .pdbqt <input type='file' name='upload' accept='.pdbqt'></label>"
+            "<label>Or import existing project-relative .pdbqt path "
+            "<input name='existing_path' placeholder='provenance/4ubp_protein_diagnostic.pdbqt'></label>"
+            "<button>Use this receptor</button></form>"
+            + metal_warning + user_warning
+            + "<h2>2. Grid box and docking parameters</h2>"
+            + f"<p>Approximate box dimensions: {sizes[0]:.2f} × {sizes[1]:.2f} × {sizes[2]:.2f} Å</p>"
+            + "<p>Change the center and grid-point counts yourself. The initial center is estimated "
+              "from the crystal HAE coordinates when available.</p>"
+            + f"<form method='post' action='/projects/{project_id}/manual/settings'>"
+            + fields
+            + "<label><input type='checkbox' name='allow_missing_metal' value='on' "
+              + ("checked" if t['allow_missing_metal'] else "")
+              + "> I acknowledge this is exploratory metal-free docking if the catalytic Ni ions are absent</label>"
+            + "<button>Save manual parameters</button></form>"
+            + "<h2>3. Execute each step separately</h2>"
+            + f"<p>Prepared ligand files: {len(ligands)}</p>"
+        )
+        for action, label in (
+            ('prepare','Prepare ligands from existing project SDF (skip completed preparations)'),
+            ('grid','Generate AutoGrid4 maps for the saved box'),
+            ('dock','Run AutoDock4 (skip completed compounds)'),
+        ):
+            body += (f"<form method='post' action='/projects/{project_id}/manual/action'>"
+                     f"<input type='hidden' name='action' value='{action}'>"
+                     f"<button type='submit'>{label}</button></form>")
+        body += action_status + results
+        body += (f"<p><a href='/projects/{project_id}/manual'>Refresh manual status</a> "
+                 f"| <a href='/projects/{project_id}/manual/log'>View manual worker log</a> "
+                 f"| <a href='/projects/{project_id}'>Back to project</a></p>")
+        return page('Manual Docking - '+project_id, body)
+
+    @app.post('/projects/{project_id}/manual/settings')
+    def manual_settings_save(project_id, center_x:float=Form(...), center_y:float=Form(...),
+                             center_z:float=Form(...), npts_x:int=Form(...), npts_y:int=Form(...),
+                             npts_z:int=Form(...), spacing:float=Form(...), ga_runs:int=Form(...),
+                             parallel_jobs:int=Form(...), ga_num_evals:int=Form(...),
+                             ga_pop_size:int=Form(...), ga_num_generations:int=Form(...),
+                             allow_missing_metal:str|None=Form(None)):
+        from .manual_docking import save_settings
+        try:
+            save_settings(get_project(project_id), locals())
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(f'/projects/{project_id}/manual', status_code=303)
+
+    @app.post('/projects/{project_id}/manual/receptor')
+    async def manual_receptor_select(project_id, upload: UploadFile|None=File(None),
+                                     existing_path:str|None=Form(None)):
+        from .manual_docking import install_receptor, root as manual_root, job_status
+        p = get_project(project_id)
+        if job_status(p).get('status') == 'RUNNING':
+            raise HTTPException(status_code=409, detail='Manual action is running')
+        try:
+            if upload is not None and upload.filename:
+                if not upload.filename.lower().endswith('.pdbqt'):
+                    raise ValueError('Only .pdbqt files are supported')
+                dest = manual_root(p) / 'uploaded_receptor.pdbqt'
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                total = 0
+                with dest.open('wb') as f:
+                    while True:
+                        chunk = await upload.read(1024 * 1024)
+                        if not chunk: break
+                        total += len(chunk)
+                        if total > MAX_UPLOAD_BYTES: raise ValueError('PDBQT exceeds allowed upload size')
+                        f.write(chunk)
+                install_receptor(p, dest)
+            elif existing_path and existing_path.strip():
+                target = (p / existing_path.strip()).resolve()
+                if not target.is_relative_to(p.resolve()):
+                    raise ValueError('Only project-local receptor files are allowed')
+                install_receptor(p, target)
+            else:
+                raise ValueError('Upload a prepared PDBQT or enter an existing path')
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(f'/projects/{project_id}/manual', status_code=303)
+
+    @app.post('/projects/{project_id}/manual/action')
+    def manual_action(project_id, action:str=Form(...)):
+        from .manual_docking import launch
+        try:
+            launch(get_project(project_id), action)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(f'/projects/{project_id}/manual', status_code=303)
+
+    @app.get('/projects/{project_id}/manual/log', response_class=HTMLResponse)
+    def manual_log(project_id):
+        from .manual_docking import root as manual_root
+        import html as h
+        p=get_project(project_id)
+        path=manual_root(p)/'manual_worker.log'
+        data=path.read_text(encoding='utf-8', errors='replace')[-16000:] if path.exists() else 'No manual worker log yet.'
+        return page('Manual worker log', f"<h1>Manual Docking log</h1><pre>{h.escape(data)}</pre>"
+                    f"<p><a href='/projects/{project_id}/manual'>Back to manual docking</a></p>")
+
     @app.get('/projects/{project_id}/status')
     def status(project_id): return project_status(get_project(project_id))
 
