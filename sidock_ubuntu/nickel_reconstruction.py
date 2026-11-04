@@ -262,6 +262,14 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
     }
     _save_json(root(project) / "inputs/Ni_reconstruction_audit.json", record)
     install_reviewed_receptor(project, final)
+    # Switch back from any earlier exploratory metal-free acknowledgment.
+    # The restored receptor must be treated as a distinct metal-containing
+    # model, never as a continuation of a metal-free exploratory protocol.
+    from .manual_docking import settings as manual_settings, save_settings
+    current_settings = manual_settings(project)
+    if current_settings.get("allow_missing_metal"):
+        current_settings["allow_missing_metal"] = False
+        save_settings(project, current_settings)
     # Record the actual accepted audit fingerprint alongside the receptor.
     review = _json(root(project) / "inputs/receptor_review.json")
     review.update({
