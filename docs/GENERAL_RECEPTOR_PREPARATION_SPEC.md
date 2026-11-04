@@ -12,6 +12,21 @@ SIDock must be **PDB-agnostic**. No production decision may depend on a specific
 6. **Pipeline stages and integrity**: separate source input, reviewed clean structure, Meeko-compatible temporary intermediate, audited final receptor and validation. Use content hashes and provenance to invalidate downstream approvals when chemistry changes. Never automatically start large-scale docking from receptor preparation.
 7. **Validation**: syntactic PDBQT and AutoGrid/AutoDock smoke checks are distinct from scientific validation. Native-ligand redocking is appropriate only when an experimental ligand exists; evaluate RMSD, binding-site coverage and metal-coordination geometry as relevant. Clearly report when validation is not possible.
 
+## General fallback for unresolved non-active-site side chains
+
+When experimental reference coordinates are unavailable, SIDock may offer a **modeled side-chain repair**, not a claim to reconstruct experimental coordinates. Apply this policy to *any* residue, chain or PDB ID based on detected missing/zero-occupancy atoms and structural context.
+
+1. Preserve original crystallographic PDB and all reliable occupied coordinates. Record exactly which atoms have occupancy zero, are missing, or are already modeled.
+2. Determine whether the affected side chain is part of the binding site, metal coordination, covalent linkage, interface or structural/catalytic interaction. If yes, stop for expert structural review; distance alone is not proof of irrelevance.
+3. For distal side chains where modeling is acceptable, sample chemically valid, backbone-conditioned side-chain rotamers using an installed trustworthy offline modeling tool or rotamer library; do not select arbitrary coordinates or rename residue identities.
+4. Score candidates by local steric overlap, bond lengths/angles, stereochemistry, hydrogen bonding and contact environment. Optionally apply restrained local optimization with **backbone and experimentally supported atoms fixed or tightly restrained**. Do not permit changes to ions or user-reviewed ligand/site geometry.
+5. Retain multiple plausible models where the best rotamer is ambiguous. Record uncertainty and check whether differing rotamers affect pocket electrostatics or docking-site geometry. Never label modeled atoms as experimentally observed.
+6. Write a **separate repaired receptor**, along with an atom-level modification map, modeled-atom flags, rotamer selection rationale, clash/geometry measurements, references, software versions and reproducibility information. Require explicit user approval before substituting it into Step 2.
+7. Only after review: rerun real Meeko on the modeled copy and compare atom retention, modified residues, protonation and binding-site consistency. A Meeko PASS is a *format/preparation* check, not proof of experimental structure.
+8. If no credible modeled configuration can be produced or uncertainty is relevant to the active site, report BLOCKED rather than deleting atoms or suppressing Meeko errors.
+
+**Regression requirement:** The application must detect the same defects even if residue numbers, chain IDs and PDB IDs change. Tests may include 4UBP B:111/B:119/C:326/C:403 as one data set, but no remediation route may depend on their literal identifiers.
+
 ## Required implementation approach
 
 - **Metadata-driven preparation**: choose behaviors based on parsed PDB/CCD metadata and explicitly reviewed component roles. No conditions such as `if pdb_id == "4UBP"`, no hardcoded chain/residue lists, and no filename-specific magic.
