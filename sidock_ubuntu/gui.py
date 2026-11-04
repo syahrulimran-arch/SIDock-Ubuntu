@@ -27,7 +27,31 @@ def create_app(workspace=None):
         return HTMLResponse(f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{h.escape(title)} - SIDock</title><style>body{{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#17202a}}nav{{display:flex;gap:1rem;margin-bottom:2rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;margin:1rem 0}}th,td{{padding:.55rem;border-bottom:1px solid #ccd;text-align:left}}.badge{{display:inline-block;padding:.2rem .5rem;border-radius:.35rem;background:#e8eef5}}.error{{color:#a00;background:#fee;padding:.7rem}}label{{display:block;margin:.8rem 0}}input,select,button{{font:inherit;padding:.35rem}}@media(max-width:650px){{table{{font-size:.85rem}}th,td{{padding:.3rem}}}}</style></head><body><nav><a href='/projects'>Projects</a><a href='/projects/new'>New Project</a><a href='/doctor'>Doctor</a><a href='/config'>Configuration</a></nav>{body}</body></html>")
     @app.get('/',response_class=HTMLResponse)
     def index(): return page('Projects', "<h1>SIDock Ubuntu</h1><p>Local thin client for persisted projects.</p><p><a href='/projects'>Open projects</a> or <a href='/projects/new'>create a project</a>.</p>")
-    @app.get('/projects/new',response_class=HTMLResponse)
+    @app.get('/projects/new', response_class=HTMLResponse)
+    def guided_new_redirect():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse('/guided/new', status_code=303)
+
+    @app.get('/guided/new', response_class=HTMLResponse)
+    def guided_new_project():
+        return page('Create project', "<h1>Step 1 — Create docking project</h1>"
+                    "<p>Enter the project name. Protein selection and compound upload happen in their own review steps.</p>"
+                    "<form action='/guided/projects' method='post'><label>Project name "
+                    "<input name='name' required maxlength='80'></label>"
+                    "<button>Create project and continue</button></form>"
+                    "<p><a href='/projects/new/automatic'>Legacy fully automated creation (optional)</a></p>")
+
+    @app.post('/guided/projects')
+    def guided_create(name: str=Form(...)):
+        from .guided_workflow import create_guided_project
+        from fastapi.responses import RedirectResponse
+        try:
+            project = create_guided_project(root, name)
+        except (ValueError, FileExistsError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return RedirectResponse(f'/projects/{project.name}/guided/1', status_code=303)
+
+    @app.get('/projects/new/automatic',response_class=HTMLResponse)
     def new_project():
         return page('New Project', "<h1>New project</h1><form action='/projects' method='post' enctype='multipart/form-data'><label>Project name <input name='name' required></label><label>Protein PDB <input name='protein' type='file' accept='.pdb,.ent' required></label><small>Required crystallographic or prepared receptor structure.</small><label>Compound SDF <input name='compounds' type='file' accept='.sdf' required></label><small>Required compound library.</small><label>mmCIF (optional) <input name='mmcif' type='file' accept='.cif,.mmcif'></label><label>Local CCD (optional) <input name='ccd' type='file' accept='.json,.cif'></label><label>Validation structure (optional) <input name='validation_structure' type='file' accept='.pdb,.ent,.cif,.mmcif'></label><label>PDB ID (optional) <input name='pdb_id'></label><button>Create project</button></form>")
     @app.get('/projects',response_class=HTMLResponse)
@@ -93,6 +117,188 @@ def create_app(workspace=None):
         except ValueError as exc: raise HTTPException(status_code=400,detail=str(exc))
         if not (project/'project_state.json').exists(): raise HTTPException(status_code=404,detail='E001 PROJECT_NOT_FOUND')
         return project
+
+    @app.get('/projects/{project_id}/guided/{step}', response_class=HTMLResponse)
+    def guided_step(project_id: str, step: int):
+        from .guided_ui import render
+        if step not in (1, 2, 3, 4, 5):
+            raise HTTPException(status_code=404, detail='UNKNOWN_GUIDED_STEP')
+        project = get_project(project_id)
+        return page(f'Step {step} - {project.name}', render(project, step))
+
+    @app.post('/projects/{project_id}/guided/protein-upload')
+    async def guided_protein_upload(project_id: str, protein: UploadFile=File(...)):
+        from .guided_workflow import save_input
+        from fastapi.responses import RedirectResponse
+        project = get_project(project_id)
+        if Path(protein.filename or '').suffix.lower() not in ('.pdb', '.ent'):
+            raise HTTPException(status_code=400, detail='Expected a .pdb or .ent file')
+        target = project / 'input' / 'guided_protein_upload.ent'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        total = 0
+        with target.open('wb') as handle:
+            while True:
+                chunk = await protein.read(1024*1024)
+                if not chunk: break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail='Protein file is too large')
+                handle.write(chunk)
+        try:
+            save_input(project, target, 'protein')
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            target.unlink(missing_ok=True)
+        return RedirectResponse(f'/projects/{project_id}/guided/2',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/protein-review')
+    def guided_protein_review(project_id:str, ligand_key:str=Form(''),
+                              remove_groups:list[str]=Form([]),
+                              remove_waters:str|None=Form(None),
+                              padding:float=Form(8.0), center_x:str=Form(''),
+                              center_y:str=Form(''), center_z:str=Form('')):
+        from .guided_workflow import select_protein
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        try:
+            center=None if ligand_key else (float(center_x),float(center_y),float(center_z))
+            select_protein(project, ligand_key=ligand_key or None,
+                           remove_groups=remove_groups, remove_waters=bool(remove_waters),
+                           center=center, padding=padding)
+        except (ValueError,RuntimeError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/2',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/receptor-import')
+    async def guided_receptor_import(project_id:str, upload: UploadFile|None=File(None),
+                                     existing_path:str|None=Form(None)):
+        from .manual_docking import install_receptor, root as manual_root, job_status
+        from .guided_workflow import _json
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        if job_status(project).get('status') == 'RUNNING':
+            raise HTTPException(status_code=409,detail='Manual task is running')
+        if not _json(manual_root(project)/'inputs/protein_choice.json'):
+            raise HTTPException(status_code=409,detail='Save Step 2 protein review first')
+        try:
+            if upload is not None and upload.filename:
+                if Path(upload.filename).suffix.lower() != '.pdbqt':
+                    raise ValueError('Only a prepared .pdbqt is accepted')
+                destination = manual_root(project)/'uploaded_receptor.pdbqt'
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                total=0
+                with destination.open('wb') as out:
+                    while True:
+                        chunk=await upload.read(1024*1024)
+                        if not chunk: break
+                        total += len(chunk)
+                        if total > MAX_UPLOAD_BYTES:
+                            destination.unlink(missing_ok=True)
+                            raise ValueError('Uploaded receptor exceeds size limit')
+                        out.write(chunk)
+                install_receptor(project,destination)
+            elif existing_path:
+                path=(project/existing_path.strip()).resolve()
+                if not path.is_relative_to(project.resolve()):
+                    raise ValueError('PDBQT must be inside this project')
+                install_receptor(project,path)
+            else:
+                raise ValueError('Select a prepared PDBQT or provide an existing project-relative path')
+        except (ValueError,OSError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/2',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/compound-upload')
+    async def guided_compound_upload(project_id:str, compounds:UploadFile=File(...)):
+        from .guided_workflow import save_input
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        if Path(compounds.filename or '').suffix.lower() != '.sdf':
+            raise HTTPException(status_code=400,detail='Expected a .sdf file')
+        temp=project/'input/guided_compounds_upload.sdf'
+        temp.parent.mkdir(parents=True,exist_ok=True)
+        total=0
+        with temp.open('wb') as out:
+            while True:
+                chunk=await compounds.read(1024*1024)
+                if not chunk: break
+                total+=len(chunk)
+                if total>MAX_UPLOAD_BYTES:
+                    temp.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413,detail='SDF file is too large')
+                out.write(chunk)
+        try:
+            from rdkit import Chem
+            if not any(x is not None for x in Chem.SDMolSupplier(str(temp),sanitize=True,removeHs=False)):
+                raise ValueError('SDF contains no valid molecules')
+            save_input(project,temp,'compounds')
+        except (RuntimeError,ValueError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        finally:
+            temp.unlink(missing_ok=True)
+        return RedirectResponse(f'/projects/{project_id}/guided/3',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/settings')
+    def guided_save_settings(project_id: str, center_x:float=Form(...), center_y:float=Form(...),
+                             center_z:float=Form(...), npts_x:int=Form(...), npts_y:int=Form(...),
+                             npts_z:int=Form(...), spacing:float=Form(...), ga_runs:int=Form(...),
+                             parallel_jobs:int=Form(...), ga_num_evals:int=Form(...),
+                             ga_pop_size:int=Form(...), ga_num_generations:int=Form(...),
+                             allow_missing_metal:str|None=Form(None)):
+        from .manual_docking import save_settings
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        try:
+            save_settings(project,locals())
+        except (ValueError,TypeError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/4',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/approve')
+    def guided_approve(project_id:str, step:int=Form(...)):
+        from .guided_workflow import approve
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        try:
+            approve(project,step)
+        except (ValueError,RuntimeError) as exc:
+            raise HTTPException(status_code=409,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/{min(step+1,5)}',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/action')
+    def guided_run_action(project_id:str, action:str=Form(...)):
+        from .guided_workflow import approved, compound_profile, ready_to_dock, _json
+        from .manual_docking import launch, root as manual_root
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        if action not in ('receptor','prepare','grid','dock'):
+            raise HTTPException(status_code=400,detail='Unknown step action')
+        try:
+            if action == 'receptor':
+                if not _json(manual_root(project)/'inputs/protein_choice.json'):
+                    raise RuntimeError('First save Step 2 protein and crystal ligand choices.')
+                step=2
+            elif action == 'prepare':
+                if not approved(project,2):
+                    raise RuntimeError('Approve Step 2 first')
+                profile=compound_profile(project)
+                if profile.get('errors') or not profile.get('available'):
+                    raise RuntimeError('Compound SDF must contain valid, uniquely named molecules: '+ '; '.join(profile.get('errors',[])))
+                step=3
+            elif action == 'grid':
+                if not approved(project,2) or not approved(project,3):
+                    raise RuntimeError('Approve both protein and compound preparation first')
+                step=4
+            else:
+                ready_to_dock(project)
+                step=5
+            launch(project,action)
+        except (RuntimeError,ValueError) as exc:
+            raise HTTPException(status_code=409,detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/{step}',status_code=303)
+
     @app.get('/projects/{project_id}')
     def detail(project_id):
         data=project_view(get_project(project_id)); import html as h
@@ -112,6 +318,12 @@ def create_app(workspace=None):
             action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>RESUME</button></form>"
         else:
             action=f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>"
+        if (get_project(project_id)/'manual_docking/workflow.json').exists():
+            action=(f"<p><a href='/projects/{h.escape(project_id)}/guided/1'>"
+                    "<b>Continue manually reviewed five-step docking workflow</b></a></p>")
+        else:
+            action=(f"<p><a href='/projects/{h.escape(project_id)}/guided/1'>"
+                    "Switch to reviewed five-step docking workflow</a></p>" + action)
         failed_stages = [
             (stage, row) for stage, row in state.get('stages', {}).items()
             if isinstance(row, dict) and row.get('status') in {'FAIL', 'BLOCKED'}
