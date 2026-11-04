@@ -60,7 +60,16 @@ def create_app(workspace=None):
         items=[]
         for p in sorted((x for x in root.iterdir() if (x/'project_state.json').exists()), key=lambda x:x.stat().st_mtime, reverse=True):
             state=project_status(p); final=derived_project_status(state)
-            items.append(f"<tr><td><a href='/projects/{h.escape(p.name)}'>{h.escape(p.name)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='/projects/{h.escape(p.name)}'>Open</a></td></tr>")
+            guided=(p/'manual_docking/workflow.json').is_file()
+            if guided:
+                from .guided_workflow import approved
+                if approved(p,4): final='READY FOR DOCKING'
+                elif approved(p,3): final='STEP 4: SETUP REVIEW'
+                elif approved(p,2): final='STEP 3: COMPOUND REVIEW'
+                else: final='STEP 2: PROTEIN REVIEW'
+            action=(f'/projects/{h.escape(p.name)}/guided/1' if guided
+                    else f'/projects/{h.escape(p.name)}')
+            items.append(f"<tr><td><a href='{action}'>{h.escape(p.name)}</a></td><td><span class='badge'>{h.escape(final)}</span></td><td><a href='{action}'>Open</a></td></tr>")
         body="<h1>Projects</h1>"+("<table><tr><th>Project</th><th>Status</th><th></th></tr>"+''.join(items)+"</table>" if items else "<p>No projects yet.</p><p><a href='/projects/new'>Create your first project</a></p>")
         return page('Projects',body)
 
@@ -349,7 +358,28 @@ def create_app(workspace=None):
 
     @app.get('/projects/{project_id}')
     def detail(project_id):
-        data=project_view(get_project(project_id)); import html as h
+        project=get_project(project_id)
+        if (project/'manual_docking/workflow.json').is_file():
+            from .guided_workflow import approved
+            from .manual_docking import job_status
+            import html as _h
+            progress=next((n for n in (4,3,2) if approved(project,n)),1)
+            goal=min(progress+1,5)
+            current_job=job_status(project)
+            run_message=(f"<p>Last manual job: {_h.escape(str(current_job.get('action')))} "
+                         f"— {_h.escape(str(current_job.get('status')))}</p>"
+                         if current_job else "")
+            return page(project.name,
+                f"<h1>{_h.escape(project.name)}</h1>"
+                "<p>SIDock guided workflow. Every scientific stage is manually reviewed. "
+                "The previous automatic pipeline state is independent of these approvals.</p>"
+                f"<p><b>Approved through Step {progress}</b> (Step 1 means project created).</p>"
+                + run_message
+                + f"<p><a href='/projects/{_h.escape(project_id)}/guided/{goal}'>"
+                  f"Continue to Step {goal}</a></p>"
+                + f"<p><a href='/projects/{_h.escape(project_id)}/guided/1'>All five steps</a> "
+                  f"| <a href='/projects/{_h.escape(project_id)}/results'>Legacy results</a></p>")
+        data=project_view(project); import html as h
         state=data['state']; final=derived_project_status(state); counts=data.get('reference',{}); dash=data['dashboard']
         if dash['primary_action']=='RUN':
             policy=dash.get('validation_policy','required')
