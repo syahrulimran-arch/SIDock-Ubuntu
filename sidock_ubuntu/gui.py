@@ -274,7 +274,8 @@ def create_app(workspace=None):
 
     @app.post('/projects/{project_id}/guided/parameters')
     async def guided_custom_parameters(project_id: str, upload: UploadFile|None=File(None),
-                                       existing_path: str|None=Form(None)):
+                                       existing_path: str|None=Form(None),
+                                       next_step:int=Form(4)):
         from .manual_docking import install_parameter_file, root as manual_root, job_status
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
@@ -306,7 +307,31 @@ def create_app(workspace=None):
                 raise ValueError('Select a complete AutoDock4 parameter library')
         except (ValueError,RuntimeError,OSError,UnicodeError) as exc:
             raise HTTPException(status_code=400,detail=str(exc))
-        return RedirectResponse(f'/projects/{project_id}/guided/4',status_code=303)
+        return RedirectResponse(f'/projects/{project_id}/guided/{2 if next_step == 2 else 4}',status_code=303)
+
+    @app.post('/projects/{project_id}/guided/ni-reconstruct')
+    def guided_reconstruct_nickel(project_id: str, atom_type:str=Form(...),
+                                  site_charges:str=Form(...),
+                                  parameter_source:str=Form(...),
+                                  charge_source:str=Form(...),
+                                  confirm_nickel_model:str|None=Form(None)):
+        from .nickel_reconstruction import reconstruct, parse_charges
+        from .manual_docking import job_status
+        from fastapi.responses import RedirectResponse
+        project=get_project(project_id)
+        try:
+            if job_status(project).get('status') == 'RUNNING':
+                raise RuntimeError('A manual worker is still running; reconstruction is blocked')
+            result=reconstruct(
+                project, atom_type=atom_type.strip(),
+                charges=parse_charges(site_charges),
+                parameter_source=parameter_source,
+                charge_source=charge_source,
+                nonbonded_model_acknowledged=(confirm_nickel_model == 'I_ACKNOWLEDGE_NI_MODEL'),
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/2', status_code=303)
 
     @app.post('/projects/{project_id}/guided/approve')
     def guided_approve(project_id:str, step:int=Form(...)):
@@ -326,10 +351,10 @@ def create_app(workspace=None):
         from .manual_docking import launch, root as manual_root, job_status, settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
-        if action not in ('receptor','receptor_metal_free','prepare','reuse_compounds','grid','dock'):
+        if action not in ('receptor','receptor_metal_free','receptor_ni_intermediate','prepare','reuse_compounds','grid','dock'):
             raise HTTPException(status_code=400,detail='Unknown step action')
         try:
-            if action in ('receptor', 'receptor_metal_free'):
+            if action in ('receptor', 'receptor_metal_free', 'receptor_ni_intermediate'):
                 if not _json(manual_root(project)/'inputs/protein_choice.json'):
                     raise RuntimeError('First save Step 2 protein and crystal ligand choices.')
                 if action == 'receptor_metal_free':
