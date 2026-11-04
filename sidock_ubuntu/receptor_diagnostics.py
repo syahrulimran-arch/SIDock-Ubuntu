@@ -72,8 +72,13 @@ def analyze_meeko_log(text: str) -> dict:
     }
 
 
-def read_receptor_diagnostics(project: Path, *, exploratory_metal_free: bool = False) -> dict:
-    name = "receptor_meeko_metal_free.log" if exploratory_metal_free else "receptor_meeko.log"
+def read_receptor_diagnostics(project: Path, *, exploratory_metal_free: bool = False,
+                              nickel_intermediate: bool = False) -> dict:
+    if exploratory_metal_free and nickel_intermediate:
+        raise ValueError("Choose only one diagnostic mode")
+    name = ("receptor_meeko_Ni_intermediate.log" if nickel_intermediate else
+            "receptor_meeko_metal_free.log" if exploratory_metal_free else
+            "receptor_meeko.log")
     path = Path(project) / "manual_docking/logs" / name
     if not path.is_file():
         return {"available": False, "path": str(path)}
