@@ -70,6 +70,7 @@ def test_step2_4ubp_distinguishes_hae_kcx_ni_and_cap(tmp_path):
     assert roles["KCX:C:220"] == "MODIFIED_PROTEIN"
     assert roles["NI:C:798"] == roles["NI:C:799"] == "ION"
     assert roles["ACE:A:0"] == "POTENTIAL_PROTEIN_CAP"
+    assert "ACE:A:0" in {g["key"] for g in profile["ligands"]}
 
 
 def test_step2_cleanup_retains_metal_and_modified_protein(tmp_path):
@@ -129,3 +130,37 @@ def test_cannot_remove_modified_protein_even_if_requested(tmp_path):
     with pytest.raises(ValueError, match="Modified protein"):
         select_protein(p, ligand_key="HAE:C:800",
                        remove_groups=["KCX:C:220"])
+
+
+
+def test_ace_can_be_explicit_grid_reference_with_warning_but_remains_in_receptor(tmp_path):
+    p = new_project(tmp_path)
+    with pytest.raises(ValueError, match="scientific acknowledgment"):
+        select_protein(p, ligand_key="ACE:A:0", remove_groups=[])
+
+    result = select_protein(
+        p, ligand_key="ACE:A:0", remove_groups=[], remove_waters=True,
+        acknowledge_non_ligand_component=True
+    )
+    assert result["mode"] == "USER_SELECTED_COMPONENT"
+    assert result["component_role"] == "POTENTIAL_PROTEIN_CAP"
+    assert result["user_selected_without_native_validation"] is True
+    assert result["scientific_acknowledgment"] is True
+    assert "ACE:A:0" not in result["removed_residues"]
+    assert "ACE A   0" in (manual_root(p) / "inputs/protein_clean.pdb").read_text()
+    selected = (manual_root(p) / "inputs/crystal_ligand.pdb").read_text()
+    assert "ACE A   0" in selected
+    assert result["site_warning"]
+
+
+def test_ace_removal_requires_acknowledgment_and_is_audited(tmp_path):
+    p = new_project(tmp_path)
+    with pytest.raises(ValueError, match="scientific acknowledgment"):
+        select_protein(p, ligand_key=None, remove_groups=["ACE:A:0"],
+                       center=(1.,2.,3.))
+    choice = select_protein(
+        p, ligand_key="ACE:A:0", remove_groups=["ACE:A:0"],
+        acknowledge_non_ligand_component=True
+    )
+    assert "ACE:A:0" in choice["removed_residues"]
+    assert "ACE A   0" not in (manual_root(p) / "inputs/protein_clean.pdb").read_text()
