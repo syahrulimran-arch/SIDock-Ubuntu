@@ -300,6 +300,11 @@ def grid(project: Path) -> dict:
         "ligand_sha256": {x.name: _sha(x) for x in ligands},
         "metal_atoms_original": _input_metals(project),
         "metal_atoms_prepared": _pdbqt_metals(project),
+        "nickel_reconstruction_audit_sha256": _sha(root(project) / "inputs/Ni_reconstruction_audit.json")
+              if (root(project) / "inputs/Ni_reconstruction_audit.json").is_file()
+              and _read_json(root(project) / "inputs/receptor_review.json").get("metal_model")
+              else None,
+        "metal_model_validation": "NOT_PERFORMED",
         "validation": "NOT_PERFORMED",
         "custom_parameter_sha256": _sha(parameter_file_path(project)) if parameter_file_path(project) else None,
         "method": "MANUAL_AUTODOCK4",
