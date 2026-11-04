@@ -369,6 +369,7 @@ def _fingerprint(project: Path, step: int) -> str | None:
         return _digest({
             "source": _sha_file(src), "choice": _sha_file(choice),
             "clean": _sha_file(clean), "receptor": _sha_file(receptor),
+            "exploratory_metal_free": settings(project)["allow_missing_metal"],
         })
     if step == 3:
         source = _source(project, "compounds")
