@@ -33,7 +33,7 @@ def run_validation_stage(native_pdb, receptor_pdbqt, grid_dir, work_dir, output_
     native=prepare_native_ligand(native_pdb,output_dir,ccd_path=ccd_path)
     return run_native_redocking(native_pdb=native_pdb,receptor_pdbqt=receptor_pdbqt,grid_dir=grid_dir,work_dir=work_dir,output_dir=output_dir,grid=grid,params=params,reference_info=reference_info,ccd_path=ccd_path)
 
-def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str):
+def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: list[str], autogrid: str, *, parameter_file: Path | None = None):
     """Generate one role-specific AutoGrid grid and persist exact provenance."""
     import hashlib
     import json
@@ -46,6 +46,17 @@ def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: lis
 
     gpf=grid_dir/'receptor.gpf'
     write_gpf(local_receptor,ligand_types,grid,gpf)
+    custom_parameter_hash = None
+    if parameter_file is not None:
+        parameter_file = Path(parameter_file)
+        if not parameter_file.is_file():
+            raise FileNotFoundError(f'Custom AD4 parameter file missing: {parameter_file}')
+        local_parameters = grid_dir / 'custom_ad4_parameters.dat'
+        if parameter_file.resolve() != local_parameters.resolve():
+            shutil.copy2(parameter_file, local_parameters)
+        import hashlib as _hashlib
+        custom_parameter_hash = _hashlib.sha256(local_parameters.read_bytes()).hexdigest()
+        gpf.write_text('parameter_file custom_ad4_parameters.dat\n' + gpf.read_text(encoding='utf-8'), encoding='utf-8')
     glg=grid_dir/'receptor.glg'
     code=run_command([autogrid,'-p',gpf.name,'-l',glg.name],grid_dir,grid_dir/'autogrid.log')
     if code!=0:
@@ -65,6 +76,7 @@ def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: lis
         'gpf': str(gpf.resolve()),
         'glg': str(glg.resolve()),
         'maps': [str(p.resolve()) for p in maps],
+        'custom_parameter_sha256': custom_parameter_hash,
     }
     provenance_path=grid_dir/'grid_provenance.json'
     tmp=provenance_path.with_suffix('.json.tmp')
@@ -82,7 +94,7 @@ def run_grid_stage(receptor_pdbqt: Path, grid_dir: Path, grid, ligand_types: lis
         'grid_provenance':provenance_path,
     }
 
-def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path, dpf_dir: Path, dlg_dir: Path, ligand_types: list[str], params, autodock: str):
+def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path, dpf_dir: Path, dlg_dir: Path, ligand_types: list[str], params, autodock: str, *, parameter_file: Path | None = None):
     """Run one AutoDock job in a compound-private execution directory.
 
     AutoDock4 itself is a single CPU process. Isolating each compound's working
@@ -118,6 +130,14 @@ def run_compound_docking(ligand_pdbqt: Path, receptor_stem: str, work_dir: Path,
             pass
 
     dpf=dpf_dir/f'{ligand_pdbqt.stem}.dpf'; write_dpf(receptor_stem,local_ligand,ligand_types,effective_params,dpf)
+    if parameter_file is not None:
+        parameter_file = Path(parameter_file)
+        if not parameter_file.is_file():
+            raise FileNotFoundError(f'Custom AD4 parameter file missing: {parameter_file}')
+        param_target = run_dir / 'custom_ad4_parameters.dat'
+        if parameter_file.resolve() != param_target.resolve():
+            shutil.copy2(parameter_file, param_target)
+        dpf.write_text('parameter_file custom_ad4_parameters.dat\n' + dpf.read_text(encoding='utf-8'), encoding='utf-8')
     shutil.copy2(dpf,run_dir/dpf.name)
     dlg=dlg_dir/f'{ligand_pdbqt.stem}.dlg'
     code=run_command([autodock,'-p',dpf.name,'-l',str(dlg.resolve())],run_dir,run_dir/f'{ligand_pdbqt.stem}.log')
