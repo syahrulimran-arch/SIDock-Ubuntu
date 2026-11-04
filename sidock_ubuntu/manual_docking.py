@@ -311,8 +311,11 @@ def dock(project: Path) -> dict:
               "results_csv": str(results_csv),
               "errors": errors}
     _save_json(run / "docking_result.json", result)
-    if errors:
-        raise RuntimeError(f"{len(errors)} AutoDock jobs failed; see {run/'docking_result.json'}")
+    if errors or result["completed"] != result["total"]:
+        raise RuntimeError(
+            f"AutoDock completed {result['completed']}/{result['total']} compounds; "
+            f"{len(errors)} explicit job errors. See {run/'docking_result.json'}"
+        )
     return result
 
 
