@@ -511,9 +511,25 @@ def _fingerprint(project: Path, step: int) -> str | None:
         if (receptor_review.get("clean_sha256") != _sha_file(clean) or
                 receptor_review.get("receptor_sha256") != _sha_file(receptor)):
             return None
+        metal_audit = None
+        metal_parameter_hash = None
+        if receptor_review.get("metal_model"):
+            audit = manual_root(project) / "inputs/Ni_reconstruction_audit.json"
+            param_file = manual_root(project) / "custom_parameters.dat"
+            if (not audit.is_file() or not param_file.is_file()
+                    or receptor_review.get("metal_audit_sha256") != _sha_file(audit)):
+                return None
+            metal_data = _json(audit)
+            if (metal_data.get("reconstructed_sha256") != _sha_file(receptor)
+                    or metal_data.get("reviewed_clean_sha256") != _sha_file(clean)
+                    or metal_data.get("AD4_parameters_sha256") != _sha_file(param_file)):
+                return None
+            metal_audit = _sha_file(audit)
+            metal_parameter_hash = _sha_file(param_file)
         return _digest({
             "source": _sha_file(src), "choice": _sha_file(choice),
             "clean": _sha_file(clean), "receptor": _sha_file(receptor),
+            "metal_audit": metal_audit, "metal_parameters": metal_parameter_hash,
             "exploratory_metal_free": settings(project)["allow_missing_metal"],
         })
     if step == 3:
@@ -573,6 +589,13 @@ def approve(project: Path, step: int) -> dict:
         receptor = manual_root(project) / "receptor.pdbqt"
         if _sha_file(receptor) is None:
             raise RuntimeError("Invalid receptor")
+        # Restored nickel remains an unvalidated model, but must be backed by
+        # the same audited custom force-field library that will reach AutoGrid.
+        if receptor_review.get("metal_model") and _fingerprint(project, 2) is None:
+            raise RuntimeError(
+                "Nickel reconstruction audit, receptor or custom parameters changed; "
+                "reconstruct or reimport and review before approving Step 2."
+            )
         # Do not disguise a metal-stripped receptor as a validated metalloprotein.
         from .manual_docking import _input_metals, _pdbqt_metals
         if _input_metals(project) and _pdbqt_metals(project) < _input_metals(project) and not settings(project)["allow_missing_metal"]:
