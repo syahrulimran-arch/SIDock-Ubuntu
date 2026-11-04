@@ -1,0 +1,369 @@
+"""Server-rendered manually vetted five-step SIDock interface."""
+from __future__ import annotations
+
+import html
+import json
+from pathlib import Path
+
+from .guided_workflow import (
+    approved, active_run, compound_profile, load_workflow, protein_profile,
+    _json, _source,
+)
+from .manual_docking import (
+    root as manual_root, settings, job_status, prepared_ligands,
+    _input_metals, _pdbqt_metals,
+)
+
+
+def e(value) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def flow_nav(project: Path, selected: int) -> str:
+    labels = {
+        1: "1. Project",
+        2: "2. Protein & binding site",
+        3: "3. Compounds",
+        4: "4. Docking setup",
+        5: "5. Docking run",
+    }
+    elements = []
+    for index, label in labels.items():
+        if index == 1:
+            state = "CREATED"
+        elif index == 5:
+            state = "READY" if approved(project, 4) else "WAITING"
+        else:
+            state = "APPROVED" if approved(project, index) else "REVIEW"
+        tag = "<strong>" if index == selected else ""
+        close = "</strong>" if index == selected else ""
+        elements.append(
+            f"<a style='padding:.6rem;border:1px solid #bcc7d4;border-radius:7px;"
+            f"display:inline-block;margin:0 .4rem .4rem 0;"
+            f"{'background:#e8eef5;' if index == selected else ''}' "
+            f"href='/projects/{e(project.name)}/guided/{index}'>"
+            f"{tag}{e(label)}{close}<small style='display:block'>{e(state)}</small></a>"
+        )
+    return "<div style='margin:1rem 0 1.5rem'>" + "".join(elements) + "</div>"
+
+
+def action(project: Path, task: str, label: str, *, disabled=False) -> str:
+    return (
+        f"<form style='display:inline-block;margin:.5rem 1rem .5rem 0' "
+        f"action='/projects/{e(project.name)}/guided/action' method='post'>"
+        f"<input type='hidden' name='action' value='{e(task)}'>"
+        f"<button type='submit' {'disabled' if disabled else ''}>{e(label)}</button></form>"
+    )
+
+
+def approve_form(project: Path, step: int, label="Approve and continue") -> str:
+    if approved(project, step):
+        return f"<p><b>Step {step} approved for current inputs.</b> If you change anything, it requires reapproval.</p>"
+    return (
+        f"<form method='post' action='/projects/{e(project.name)}/guided/approve'>"
+        f"<input type='hidden' name='step' value='{step}'>"
+        f"<button type='submit'>{e(label)}</button></form>"
+    )
+
+
+def job_view(project: Path) -> str:
+    job = job_status(project)
+    if not job:
+        return "<p>No manual job has been launched.</p>"
+    status = job.get("status", "UNKNOWN")
+    err = job.get("error")
+    result = job.get("result")
+    return (
+        f"<p><b>Last action:</b> {e(job.get('action'))} — {e(status)}</p>"
+        + (f"<pre class='error'>{e(err)}</pre>" if err else "")
+        + (f"<details><summary>Output</summary><pre>{e(json.dumps(result,indent=2))}</pre></details>" if result else "")
+        + f"<p><a href='/projects/{e(project.name)}/manual/log'>See worker log</a></p>"
+    )
+
+
+def step1(project: Path) -> str:
+    protein = _source(project, "protein")
+    compounds = _source(project, "compounds")
+    return (
+        "<h2>Step 1 — Create project</h2>"
+        "<p>Project is created. Protein and compounds are deliberately collected in separate stages. "
+        "No automatic docking starts after project creation.</p>"
+        f"<p><b>Project:</b> {e(project.name)}</p>"
+        f"<p><b>Protein:</b> {e(protein.name if protein else 'Not selected')}</p>"
+        f"<p><b>Compounds:</b> {e(compounds.name if compounds else 'Not selected')}</p>"
+        f"<p><a href='/projects/{e(project.name)}/guided/2'>Continue to Step 2: protein and binding site</a></p>"
+    )
+
+
+def step2(project: Path) -> str:
+    profile = protein_profile(project)
+    choice = _json(manual_root(project) / "inputs/protein_choice.json")
+    job = job_status(project)
+    receptor = manual_root(project) / "receptor.pdbqt"
+    content = [
+        "<h2>Step 2 — Protein, crystal ligand and site</h2>",
+        "<p>Select the experimental ligand explicitly. SIDock will suggest a grid centered on that "
+        "ligand, but you approve it. Alternatively choose no ligand and enter grid coordinates yourself. "
+        "Review waters, ions, solvents and nonstandard residues before receptor preparation.</p>",
+    ]
+    if not profile["available"]:
+        content.append(
+            f"<form method='post' enctype='multipart/form-data' "
+            f"action='/projects/{e(project.name)}/guided/protein-upload'>"
+            "<label>Upload protein PDB <input type='file' name='protein' accept='.pdb,.ent' required></label>"
+            "<button>Upload protein</button></form>"
+        )
+        return "".join(content)
+    content.append(f"<p><b>Protein source:</b> {e(profile['protein'])}</p>")
+    content.extend(f"<small style='display:block'>{e(line)}</small>" for line in profile["headers"])
+    content.append("<h3>Detected components</h3>")
+    if not profile["groups"]:
+        content.append("<p>No nonstandard components detected. Enter a manual grid center below.</p>")
+    else:
+        content.append(
+            "<table><tr><th>Component</th><th>Role</th><th>Atoms</th><th>Remove from receptor?</th></tr>"
+        )
+        old_remove = set(choice.get("removed_residues", []))
+        for group in profile["groups"]:
+            key = group["key"]
+            protected = group["protected"]
+            selected = key in old_remove if choice else group["default_remove"]
+            remove_input = "Protected protein modification (retained)"
+            if group["role"] == "WATER":
+                remove_input = "Controlled by the water checkbox"
+            elif not protected:
+                remove_input = (
+                    f"<input type='checkbox' name='remove_groups' value='{e(key)}' "
+                    f"{'checked' if selected else ''}> Remove"
+                )
+            content.append(
+                f"<tr><td><b>{e(key)}</b></td><td>{e(group['role'])}</td>"
+                f"<td>{e(group['atoms'])}</td><td>{remove_input}</td></tr>"
+            )
+        content.append("</table>")
+
+    options = ["<option value=''>No crystal ligand — enter grid coordinates manually</option>"]
+    for group in profile["ligands"]:
+        key = group["key"]
+        options.append(
+            f"<option value='{e(key)}' {'selected' if key == choice.get('ligand_key') else ''}>"
+            f"{e(key)} ({group['atoms']} atoms)</option>"
+        )
+    current = settings(project)
+    padding = choice.get("padding", 8.0)
+    checked_waters = choice.get("remove_waters", True)
+    content.append(
+        f"<form method='post' action='/projects/{e(project.name)}/guided/protein-review'>"
+        f"<label><b>Crystal ligand:</b> <select name='ligand_key'>{''.join(options)}</select></label>"
+        f"<label><input type='checkbox' name='remove_waters' value='on' "
+        f"{'checked' if checked_waters else ''}> Remove crystallographic waters</label>"
+        "<p><small>When a crystal ligand is selected, its atoms are extracted separately "
+        "and removed from the docking receptor. Other selected removals are recorded "
+        "in the audit. Metal ions are retained unless explicitly checked above.</small></p>"
+        f"<label>Binding-site padding (Å) <input type='number' step='0.5' min='1' max='20' "
+        f"name='padding' value='{e(padding)}'></label>"
+        "<h3>Manual center (used only when no ligand is selected)</h3>"
+        + "".join(
+            f"<label>{e(axis)} <input name='center_{axis.lower()}' type='number' step='0.001' "
+            f"value='{e(current['center_'+axis.lower()])}' required></label>"
+            for axis in ("X","Y","Z")
+        )
+        + "<button>Save protein/site review and generate cleaned PDB preview</button></form>"
+    )
+    if choice:
+        content.append(
+            f"<p><b>Binding-site mode:</b> {e(choice.get('mode'))}; "
+            f"<b>center:</b> {e(choice.get('center'))}; "
+            f"<b>grid points:</b> {e(choice.get('npts'))}</p>"
+            f"<p>Removed components: {e(', '.join(choice.get('removed_residues', [])) or 'None')}</p>"
+            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/protein_clean.pdb'>"
+            "Inspect cleaned receptor PDB</a>"
+            + (f" | <a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/crystal_ligand.pdb'>"
+               "Crystal ligand PDB</a>" if choice.get("ligand_key") else "")
+            + "</p>"
+        )
+        content.append(
+            "<h3>Prepare receptor PDBQT</h3>"
+            "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
+            "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
+            + action(project, "receptor", "Prepare receptor using Meeko",
+                     disabled=job.get("status") == "RUNNING")
+        )
+        content.append(
+            "<p><b>Alternatively:</b> import a previously prepared and chemically verified "
+            "PDBQT. This is useful for metal-dependent proteins.</p>"
+            f"<form method='post' action='/projects/{e(project.name)}/guided/receptor-import' "
+            "enctype='multipart/form-data'>"
+            "<label>Upload receptor PDBQT <input name='upload' type='file' accept='.pdbqt'></label>"
+            "<label>Or select an existing project-local PDBQT "
+            "<input name='existing_path' placeholder='provenance/4ubp_protein_diagnostic.pdbqt'></label>"
+            "<button>Import receptor PDBQT</button></form>"
+        )
+    if receptor.is_file():
+        content.append(
+            f"<p><b>Prepared receptor:</b> {e(receptor)} "
+            f"({receptor.stat().st_size:,} bytes)</p>"
+        )
+        original_metals = _input_metals(project)
+        prepared_metals = _pdbqt_metals(project)
+        if original_metals and prepared_metals != original_metals:
+            content.append(
+                "<p class='error'><b>Metal mismatch:</b> original PDB has "
+                f"{original_metals} nickel ions; prepared receptor has {prepared_metals}. "
+                "A metal-free result must be explicitly designated exploratory "
+                "under Step 4 and cannot be reported as native metal-site docking.</p>"
+            )
+    content.append(job_view(project))
+    content.append(
+        "<p>Review the PDBQT and retained cofactors. Approval never runs docking.</p>"
+        + approve_form(project, 2)
+    )
+    return "".join(content)
+
+
+def step3(project: Path) -> str:
+    profile = compound_profile(project)
+    job = job_status(project)
+    html_bits = [
+        "<h2>Step 3 — Compounds and minimization</h2>",
+        "<p>Upload an SDF library and inspect the compound count and IDs. "
+        "Minimization and PDBQT generation are explicitly started here, only once. "
+        "The workflow rejects missing or duplicate identifiers instead of silently omitting compounds.</p>"
+    ]
+    if not profile["available"]:
+        html_bits.append(
+            f"<form enctype='multipart/form-data' method='post' "
+            f"action='/projects/{e(project.name)}/guided/compound-upload'>"
+            "<label>Compound SDF <input type='file' name='compounds' accept='.sdf' required></label>"
+            "<button>Upload compounds</button></form>"
+        )
+        return "".join(html_bits)
+    html_bits.append(
+        f"<p><b>Source:</b> {e(profile['source'])}</p>"
+        f"<p><b>Molecules:</b> {profile['total']} | "
+        f"<b>Prepared:</b> {profile['prepared_count']} | "
+        f"<b>Verified preparations:</b> {'Yes' if profile['prepared'] else 'No'}</p>"
+    )
+    if profile["errors"]:
+        html_bits.append(
+            "<p class='error'>Fix the source SDF before preparation: "
+            + e("; ".join(profile["errors"])) + "</p>"
+        )
+    html_bits.append(
+        "<details><summary>Compound IDs</summary><pre>"
+        + e("\n".join(profile["names"])) + "</pre></details>"
+    )
+    html_bits.append(action(
+        project, "prepare", "Minimize and prepare compounds",
+        disabled=bool(profile["errors"]) or not approved(project, 2)
+        or job.get("status") == "RUNNING"
+    ))
+    html_bits.append(job_view(project))
+    html_bits.append(approve_form(project, 3))
+    return "".join(html_bits)
+
+
+def step4(project: Path) -> str:
+    t = settings(project)
+    run = active_run(project)
+    job = job_status(project)
+    html_bits = [
+        "<h2>Step 4 — Docking setup and grid</h2>",
+        "<p>Confirm the docking center, AutoGrid grid points and genetic algorithm settings. "
+        "Then generate maps and review the GPF. This stage does not dock compounds.</p>"
+    ]
+    for k in ("center_x", "center_y", "center_z", "npts_x", "npts_y", "npts_z"):
+        if k not in t:
+            return "<p class='error'>Step 2 must define the docking site first.</p>"
+    fields = []
+    for name, label, step in (
+        ("center_x","Center X (Å)", "0.001"),
+        ("center_y","Center Y (Å)", "0.001"),
+        ("center_z","Center Z (Å)", "0.001"),
+        ("npts_x","Grid points X (even)", "2"),
+        ("npts_y","Grid points Y (even)", "2"),
+        ("npts_z","Grid points Z (even)", "2"),
+        ("spacing","Spacing (Å)", "0.025"),
+        ("ga_runs","GA runs per compound", "1"),
+        ("parallel_jobs","Parallel compound jobs", "1"),
+        ("ga_num_evals","Maximum evaluations", "1"),
+        ("ga_pop_size","GA population", "1"),
+        ("ga_num_generations","Maximum generations", "1"),
+    ):
+        fields.append(
+            f"<label>{e(label)} <input name='{name}' type='number' step='{step}' "
+            f"value='{e(t[name])}' required></label>"
+        )
+    exploratory = (
+        f"<label><input type='checkbox' value='on' name='allow_missing_metal' "
+        f"{'checked' if t['allow_missing_metal'] else ''}>"
+        " I explicitly acknowledge that if nickel is absent, the run is an "
+        "exploratory metal-free model, not metal-site docking.</label>"
+    )
+    dims = [t[k]*t["spacing"] for k in ("npts_x","npts_y","npts_z")]
+    html_bits.append(f"<p>Current box dimensions: {dims[0]:.2f} × {dims[1]:.2f} × {dims[2]:.2f} Å.</p>")
+    html_bits.append(
+        f"<form method='post' action='/projects/{e(project.name)}/guided/settings'>"
+        + "".join(fields) + exploratory
+        + "<button>Save docking setup</button></form>"
+    )
+    html_bits.append(action(
+        project, "grid", "Generate AutoGrid4 maps (reuse if unchanged)",
+        disabled=not (approved(project, 2) and approved(project, 3))
+        or job.get("status") == "RUNNING",
+    ))
+    if run and (run/"grid/production/grid_provenance.json").exists():
+        rel = run.relative_to(project).as_posix()
+        html_bits.append(
+            f"<p><b>Maps ready for run:</b> {e(run.name)}</p>"
+            f"<a href='/projects/{e(project.name)}/artifacts/{e(rel)}/grid/production/receptor.gpf'>"
+            "Inspect AutoGrid parameters (GPF)</a>"
+        )
+    html_bits.append(job_view(project))
+    html_bits.append(approve_form(project, 4))
+    return "".join(html_bits)
+
+
+def step5(project: Path) -> str:
+    job = job_status(project)
+    run = active_run(project)
+    content = [
+        "<h2>Step 5 — Run docking</h2>",
+        "<p>The run is unlocked only after Steps 2–4 have been approved for their "
+        "current files and settings. Existing completed compound logs are not rerun.</p>",
+    ]
+    if not approved(project, 4):
+        content.append("<p class='error'>Docking is locked until the previous steps are approved.</p>")
+    content.append(action(
+        project, "dock", "Start / resume AutoDock4 jobs",
+        disabled=not approved(project, 4) or job.get("status") == "RUNNING",
+    ))
+    content.append(job_view(project))
+    if run:
+        rel = run.relative_to(project).as_posix()
+        result = run / "docking_result.json"
+        if result.is_file():
+            report = _json(result)
+            content.append(
+                f"<p><b>Current run:</b> {e(run.name)} | "
+                f"Completed: {report.get('completed',0)}/{report.get('total',0)}</p>"
+            )
+        csvfile = run / "results.csv"
+        if csvfile.exists():
+            content.append(
+                f"<p><a href='/projects/{e(project.name)}/artifacts/{e(rel)}/results.csv'>"
+                "Download docking results CSV</a></p>"
+            )
+    return "".join(content)
+
+
+def render(project: Path, step: int) -> str:
+    if step not in (1,2,3,4,5):
+        raise ValueError("Invalid guided step")
+    views = {1: step1, 2: step2, 3: step3, 4: step4, 5: step5}
+    content = (
+        f"<h1>SIDock — Reviewed docking workflow</h1><p><b>Project:</b> {e(project.name)} "
+        f"| <a href='/projects/{e(project.name)}'>Project overview</a></p>"
+        + flow_nav(project, step) + views[step](project)
+    )
+    return content + f"<hr><p><a href='/projects/{e(project.name)}/guided/{min(step+1,5)}'>Next step</a></p>"
