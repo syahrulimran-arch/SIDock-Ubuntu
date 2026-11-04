@@ -344,7 +344,7 @@ def job_status(project: Path) -> dict:
 
 
 def launch(project: Path, action: str) -> dict:
-    if action not in {"prepare", "grid", "dock"}:
+    if action not in {"prepare", "receptor", "grid", "dock"}:
         raise ValueError("Unsupported manual action")
     if job_status(project).get("status") == "RUNNING":
         raise RuntimeError("A manual SIDock action is already running")
@@ -368,7 +368,8 @@ def launch(project: Path, action: str) -> dict:
 def execute(project: Path, action: str) -> dict:
     path = job_path(project)
     try:
-        results = {"prepare": prepare, "grid": grid, "dock": dock}[action](project)
+        from .guided_workflow import prepare_protein
+        results = {"prepare": prepare, "receptor": prepare_protein, "grid": grid, "dock": dock}[action](project)
         job = _read_json(path)
         job.update({"status": "SUCCEEDED", "result": results,
                     "finished": datetime.now(timezone.utc).isoformat()})
@@ -385,7 +386,7 @@ def execute(project: Path, action: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Explicit manual AutoDock4 runner")
     parser.add_argument("project", type=Path)
-    parser.add_argument("action", choices=("prepare", "grid", "dock", "status"))
+    parser.add_argument("action", choices=("prepare", "receptor", "grid", "dock", "status"))
     args = parser.parse_args()
     if args.action == "status":
         print(json.dumps({"settings": settings(args.project),
