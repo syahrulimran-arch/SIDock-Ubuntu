@@ -272,14 +272,17 @@ def step2(project: Path) -> str:
             )
     content.append(job_view(project))
     from .receptor_diagnostics import read_receptor_diagnostics
-    diagnostics = read_receptor_diagnostics(project)
+    diagnostic_action = job.get("action") in {"receptor", "receptor_metal_free"}
+    diagnostics = read_receptor_diagnostics(
+        project, exploratory_metal_free=job.get("action") == "receptor_metal_free"
+    )
     if diagnostics.get("available") and (
-        job.get("action") == "receptor" and job.get("status") in {"FAILED", "EXITED"}
+        diagnostic_action and job.get("status") in {"FAILED", "EXITED"}
     ):
         content.append(
             "<h3>Why Meeko failed</h3>"
-            "<p>The error below is read from this project's receptor_meeko.log. "
-            "No receptor residues have been changed automatically.</p>"
+            "<p>The error below is read from this project's preparation log. "
+            "The original PDB and reviewed cleaned PDB have not been modified.</p>"
         )
         if diagnostics["unknown_components"]:
             content.append(
@@ -297,7 +300,7 @@ def step2(project: Path) -> str:
             "<details open><summary>Actual Meeko output (last 70 nonblank lines)</summary>"
             f"<pre style='max-height:28rem;overflow:auto;white-space:pre-wrap'>"
             f"{e(diagnostics['last_log_lines'])}</pre></details>"
-            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/receptor_meeko.log'>"
+            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/{e('receptor_meeko_metal_free.log' if job.get('action') == 'receptor_metal_free' else 'receptor_meeko.log')}'>"
             "Download complete Meeko log</a></p>"
         )
     content.append(
