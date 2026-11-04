@@ -112,7 +112,28 @@ def create_app(workspace=None):
             action=f"<form method='post' action='{h.escape(dash['primary_action_url'])}'><button type='submit'>RESUME</button></form>"
         else:
             action=f"<a href='{h.escape(dash['primary_action_url'] or '#')}'>{h.escape(dash['primary_action'])}</a>"
-        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Docking setup: <b>{h.escape(str(dash.get('ga_runs',10)))}</b> GA runs per compound; parallel jobs: <b>{h.escape(str(dash.get('parallel_jobs','auto')))}</b>; detected CPUs: <b>{h.escape(str(dash.get('detected_cpus',1)))}</b>.</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference artifacts: {'available' if counts else 'not selected yet'}</p><nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
+        failed_stages = [
+            (stage, row) for stage, row in state.get('stages', {}).items()
+            if isinstance(row, dict) and row.get('status') in {'FAIL', 'BLOCKED'}
+        ]
+        errors_html = ''.join(
+            f"<tr><td>{h.escape(str(stage))}</td><td>{h.escape(str(row.get('status')))}</td>"
+            f"<td>{h.escape('; '.join(map(str, row.get('errors') or [])) or 'No error detail recorded')}</td></tr>"
+            for stage, row in failed_stages
+        )
+        diagnostics = (
+            "<h2>Why did the execution stop?</h2><table><tr><th>Stage</th><th>Status</th><th>Recorded error</th></tr>"
+            + errors_html + "</table>"
+        ) if failed_stages else ''
+        reference_resolved = bool(counts.get('selection', {}).get('selected_instance')) if isinstance(counts.get('selection'), dict) else False
+        reference_artifacts_status = 'reference ligand selected' if reference_resolved else 'no valid reference selection recorded'
+        if not reference_resolved:
+            diagnostics += (
+                f"<p><b>Reference unresolved.</b> Check the recorded reference-stage error above and "
+                f"<a href='/projects/{h.escape(project_id)}/reference'>reference candidates</a> "
+                "before retrying. Intake metadata alone is not a selected ligand.</p>"
+            )
+        body=f"<h1>{h.escape(Path(data['project']).name)}</h1><p>Scientific status: <span class='badge'>{h.escape(final)}</span></p><p>Operational job: <span class='badge'>{h.escape(str(dash.get('operational_job_status') or 'No GUI job recorded'))}</span></p><p>Reference: {h.escape(str(dash['reference_status']))}; validation stage: {h.escape(str(dash['validation_status']))}; validation policy: <b>{h.escape(str(dash.get('validation_policy','required')))}</b></p><p>Docking setup: <b>{h.escape(str(dash.get('ga_runs',10)))}</b> GA runs per compound; parallel jobs: <b>{h.escape(str(dash.get('parallel_jobs','auto')))}</b>; detected CPUs: <b>{h.escape(str(dash.get('detected_cpus',1)))}</b>.</p><p>Input compounds: {dash['input_compound_count']}; execution records: {dash['compound_total']} ({dash['compound_success']} successful, {dash['compound_failed']} failed, {dash['compound_blocked']} blocked).</p><p>{h.escape(dash['explanatory_message'])}</p>{action}<p>Reference: {reference_artifacts_status}</p>{diagnostics}<nav><a href='/projects/{project_id}/reference'>Reference</a><a href='/projects/{project_id}/compounds'>Compounds</a><a href='/projects/{project_id}/results'>Results</a><a href='/projects/{project_id}/jobs'>Jobs</a><a href='/projects/{project_id}/config'>Config</a></nav>"
         if final=='BLOCKED': body += '<p class="error">Strict native redocking validation blocked compound docking.</p>'
         if data.get('active_job'): body += '<p>Project currently executing.</p>'
         return page(Path(data['project']).name,body)
