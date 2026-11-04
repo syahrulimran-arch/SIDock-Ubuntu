@@ -166,15 +166,6 @@ def step2(project: Path) -> str:
     current = settings(project)
     padding = choice.get("padding", 8.0)
     checked_waters = choice.get("remove_waters", True)
-    if any("4UBP" in line.upper() for line in profile["headers"]) and not any(
-        x["code"] == "HAE" for x in profile["groups"]
-    ):
-        content.append(
-            "<p><b>4UBP note:</b> The uploaded PDB has no HAE inhibitor coordinates. "
-            "The deposited 4UBP structure contains HAE at the nickel catalytic center. "
-            "ACE:A:0 is an N-terminal acetyl group, not that inhibitor. "
-            "Selecting ACE would place the box around the protein terminus instead.</p>"
-        )
     content.append(
         f"<label><b>Grid reference component (manual selection):</b> "
         f"<select name='ligand_key'>{''.join(options)}</select></label>"
@@ -220,14 +211,16 @@ def step2(project: Path) -> str:
                "Selected reference component PDB</a>" if choice.get("ligand_key") else "")
             + "</p>"
         )
-        if (any("4UBP" in header.upper() for header in profile.get("headers", []))
-                and choice.get("ligand_key") and choice.get("ligand_key", "").startswith("ACE:")):
+        selected_component = next(
+            (g for g in profile.get("groups", []) if g["key"] == choice.get("ligand_key")), None
+        )
+        if selected_component and selected_component["role"] != "LIGAND_CANDIDATE":
             content.append(
-                "<p class='error'><b>4UBP binding-site warning:</b> ACE is an "
-                "N-terminal acetyl modification. HAE:C:800 is the crystallographic "
-                "urease inhibitor at the catalytic nickel centre. Selecting ACE "
-                "places the grid near a protein terminus, not the urease inhibitor site. "
-                "For HAE redocking, select HAE:C:800 in the Step 2 component selector.</p>"
+                "<p class='error'><b>Grid-reference caution:</b> The selected "
+                f"component {e(selected_component['key'])} is classified as "
+                f"{e(selected_component['role'])}, not a verified bound ligand. "
+                "The grid may not cover the biologically relevant site. Verify the "
+                "reference against experimental ligand/site evidence.</p>"
             )
         content.append(
             "<h3>Prepare receptor PDBQT</h3>"
@@ -235,7 +228,7 @@ def step2(project: Path) -> str:
             "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
             + ("<p class='error'><b>Standard Meeko is disabled:</b> this reviewed PDB contains "
                "catalytic nickel, which Meeko cannot parameterize automatically. "
-               "For scientifically valid urease docking, import a properly parameterized "
+               "For metal-dependent docking, import a properly parameterized "
                "metal-containing receptor PDBQT. Alternatively, use the separate "
                "exploratory metal-free option below. The original receptor is untouched.</p>"
                if nickel_remains else "")
@@ -246,7 +239,7 @@ def step2(project: Path) -> str:
             content.append(
                 "<h3>Optional: prepare a metal-free exploratory receptor</h3>"
                 "<p>Meeko does not support NI in this receptor. This explicit option generates "
-                "a separate temporary PDB without the two nickel ions; it preserves your "
+                "a separate temporary PDB without the crystallographic nickel ions; it preserves your "
                 "original PDB and reviewed cleaned PDB, records a removal audit, and never "
                 "runs docking. <b>This is not suitable for interpreting nickel-dependent "
                 "urease inhibition.</b></p>"
@@ -319,7 +312,7 @@ def step2(project: Path) -> str:
                 "<label><input type='checkbox' required name='confirm_nickel_model' "
                 "value='I_ACKNOWLEDGE_NI_MODEL'> "
                 "I acknowledge that a fixed, nonbonded Ni model requires scientific review "
-                "and native HAE redocking before biological interpretation.</label>"
+                "and native-ligand redocking before biological interpretation.</label>"
                 f"<button type='submit' {'disabled' if not validated_intermediate or not custom or job.get('status') == 'RUNNING' else ''}>"
                 "B. Restore Ni and install reviewed receptor (no docking)</button></form>"
             )
