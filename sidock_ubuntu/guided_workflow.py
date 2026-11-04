@@ -354,6 +354,48 @@ def compound_profile(project: Path) -> dict:
             "prepared": bool(prepared), "prepared_count": len(ligands)}
 
 
+def import_existing_compounds(project: Path) -> dict:
+    """Copy already prepared same-project PDBQTs without running minimization.
+
+    Reuse requires an exact match of the expected sanitized SDF identifiers.
+    Original PDBQT files and any docking outputs are never altered.
+    """
+    project = Path(project).resolve()
+    profile = compound_profile(project)
+    if not profile.get("available") or profile.get("errors"):
+        raise RuntimeError("Existing compound PDBQTs can only be reused for a valid, uniquely named SDF")
+    names = [re.sub(r"[^A-Za-z0-9_.-]+", "_", name) for name in profile["names"]]
+    originals = project / "ligands" / "prepared"
+    missing = [name for name in names
+               if not (originals / (name + ".pdbqt")).is_file()
+               or (originals / (name + ".pdbqt")).stat().st_size == 0]
+    if missing:
+        raise RuntimeError("Existing prepared PDBQT files missing for: " + ", ".join(missing))
+    target = manual_root(project) / "ligands"
+    manifest = target / "manifest.json"
+    previous = _json(manifest)
+    prepared = prepared_ligands(project)
+    if prepared and (previous.get("source_sha256") != profile["source_sha256"]
+                     or {x.name for x in prepared} != {name+".pdbqt" for name in names}):
+        raise RuntimeError("Manual ligand preparation already exists and differs; refused to overwrite")
+    (target / "prepared").mkdir(parents=True, exist_ok=True)
+    (target / "source").mkdir(parents=True, exist_ok=True)
+    for name in names:
+        destination = target / "prepared" / (name + ".pdbqt")
+        if not destination.is_file():
+            shutil.copy2(originals / (name+".pdbqt"), destination)
+        minimized = project / "ligands" / "source" / (name + ".sdf")
+        if minimized.is_file() and not (target/"source"/(name+".sdf")).exists():
+            shutil.copy2(minimized, target/"source"/(name+".sdf"))
+    _save_json(manifest, {
+        "source_sha256": profile["source_sha256"],
+        "compounds": [name+".pdbqt" for name in names],
+        "preparation_method": "IMPORTED_EXISTING_PROJECT_PDBQT_NO_REMINIMIZATION",
+    })
+    _event(project, "REUSE_COMPOUND_PDBQT", {"count": len(names)})
+    return {"count": len(names), "method": "imported_existing_PDBQT", "source_minimization_rerun": False}
+
+
 def _fingerprint(project: Path, step: int) -> str | None:
     if step == 2:
         src = _source(project, "protein")
