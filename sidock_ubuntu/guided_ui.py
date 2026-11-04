@@ -174,6 +174,10 @@ def step2(project: Path) -> str:
         "in the audit. Metal ions are retained unless explicitly checked above.</small></p>"
         f"<label>Binding-site padding (Å) <input type='number' step='0.5' min='1' max='20' "
         f"name='padding' value='{e(padding)}'></label>"
+        f"<label><input type='checkbox' name='exploratory_metal_free' value='on' "
+        f"{'checked' if current['allow_missing_metal'] else ''}> "
+        "I explicitly choose an exploratory model if catalytic metal ions are absent "
+        "from the prepared receptor.</label>"
         "<h3>Manual center (used only when no ligand is selected)</h3>"
         + "".join(
             f"<label>{e(axis)} <input name='center_{axis.lower()}' type='number' step='0.001' "
