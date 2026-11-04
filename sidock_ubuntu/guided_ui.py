@@ -220,6 +220,15 @@ def step2(project: Path) -> str:
                "Selected reference component PDB</a>" if choice.get("ligand_key") else "")
             + "</p>"
         )
+        if (any("4UBP" in header.upper() for header in profile.get("headers", []))
+                and choice.get("ligand_key") and choice.get("ligand_key", "").startswith("ACE:")):
+            content.append(
+                "<p class='error'><b>4UBP binding-site warning:</b> ACE is an "
+                "N-terminal acetyl modification. HAE:C:800 is the crystallographic "
+                "urease inhibitor at the catalytic nickel centre. Selecting ACE "
+                "places the grid near a protein terminus, not the urease inhibitor site. "
+                "For HAE redocking, select HAE:C:800 in the Step 2 component selector.</p>"
+            )
         content.append(
             "<h3>Prepare receptor PDBQT</h3>"
             "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
