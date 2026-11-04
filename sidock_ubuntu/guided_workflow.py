@@ -322,6 +322,20 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
     if _sha_file(src) != choice["clean_sha256"]:
         raise RuntimeError("The cleaned PDB changed after review; review the protein again")
     folder = manual_root(project) / "inputs"
+    nickel_residues = sorted({
+        f"{line[17:20].strip().upper()}:{line[21:22].strip() or '-'}:{line[22:27].strip()}"
+        for line in src.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.startswith("HETATM") and line[17:20].strip().upper() == "NI"
+    })
+    if nickel_residues and not exploratory_metal_free:
+        raise RuntimeError(
+            "Standard Meeko receptor preparation blocked before execution: "
+            "the reviewed protein still contains unsupported nickel residues "
+            + ", ".join(nickel_residues) + ". "
+            "Choose a scientifically parameterized metal-aware receptor PDBQT "
+            "for urease docking, or explicitly approve the exploratory metal-free "
+            "preparation button in Step 2. No protein or docking files were changed."
+        )
     removal_audit = None
     if exploratory_metal_free:
         if not manual_settings(project).get("allow_missing_metal"):
