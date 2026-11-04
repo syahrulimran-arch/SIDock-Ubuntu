@@ -47,6 +47,48 @@ not cover the metal centre. The GUI will not invent nickel parameters or
 silently delete critical atoms. Deliberately choosing a metal-free model
 requires an explicit exploratory acknowledgement.
 
+### Nickel-dependent urease (4UBP): reviewed metal restoration
+
+For **4UBP**, select the **HAE:C:800** co-crystallized inhibitor to locate
+the catalytic Ni binding site. **ACE:A:0** is an N-terminal acetyl group,
+not the bound urease inhibitor. Preserve modified KCX:C:220 and the two Ni
+sites in the reviewed scientific PDB.
+
+If standard Meeko fails because of Ni, Step 2 offers a separate *Ni-retaining*
+preparation workflow:
+
+1. Click **A. Prepare Ni-free Meeko intermediate**. The two Ni HETATM
+   records are excluded from a temporary PDB passed to Meeko. No temporary
+   metal-free receptor is installed or approved as the final model.
+   The intermediate is cached using the cleaned-PDB SHA256.
+2. Review Meeko output. If Meeko fails on other residue templates (previous
+   4UBP examples include ACE A0, Glu B111/B119, Lys C326, Leu C403),
+   **repair and review those residues separately**. Do not silently delete
+   residues or turn on \`--allow_bad_res\`. No metal restoration can occur
+   until this independent preparation stage succeeds.
+3. Supply a complete AutoDock4 custom parameter library containing *all*
+   receptor and ligand atom types plus a scientifically justified \`atom_par Ni\`
+   (or \`NI\`) definition. A Zn parameter is not automatically a valid Ni
+   parameter. Record the parameter source.
+4. Supply **each** Ni partial charge with documented provenance:
+   \`C:798=<documented charge>,C:799=<documented charge>\`. There are no
+   default charges. Select the matching Ni atom type, provide the charge
+   source, acknowledge limitations and click **B. Restore Ni**.
+5. SIDock copies both original Ni coordinates into a rigid receptor PDBQT,
+   verifies their identity and positions, records the Ni–Ni distance and
+   all parameter/charge inputs with SHA256, and requests Step 2 approval.
+   No AutoGrid or AutoDock run starts during this operation.
+6. Step 4 uses the *exact same* custom parameter file in both GPF and DPF.
+   Step 2 and later approvals become stale if the metal model or parameters
+   change. A separate, experimentally assessed HAE redocking is still
+   required before treating the results as a validated urease docking study.
+
+**Scientific limitation:** The present model is a rigid, nonbonded Ni model.
+It does not include explicit metal-ligand coordination bonds, electronic
+polarization or a validated metal-specific scoring function. No reported
+docking energy or coordination geometry should be considered experimentally
+validated merely because the restored receptor can run.
+
 ## 3. Define, minimize and approve compounds
 
 Upload a single SDF library; compound IDs must be unique and present.
