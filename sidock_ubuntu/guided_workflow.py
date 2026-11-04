@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -277,9 +278,27 @@ def prepare_protein(project: Path) -> dict:
     target = manual_root(project) / "inputs/protein_meeko.pdbqt"
     log = manual_root(project) / "logs/receptor_meeko.log"
     prepared = prepare_receptor(src, target, log, allow_bad_res=False)
-    install_receptor(project, prepared)
+    install_reviewed_receptor(project, prepared)
     return {"prepared_receptor": str(prepared), "installed_receptor": str(manual_root(project) / "receptor.pdbqt"),
             "log": str(log), "note": "This does not validate metal parameters or chemistry."}
+
+
+def install_reviewed_receptor(project: Path, source: Path) -> Path:
+    """Bind an imported/prepared PDBQT to the explicitly reviewed cleaned protein."""
+    project = Path(project).resolve()
+    choice = _json(manual_root(project) / "inputs/protein_choice.json")
+    clean = manual_root(project) / "inputs/protein_clean.pdb"
+    if not choice or choice.get("clean_sha256") != _sha_file(clean):
+        raise RuntimeError("Save the current protein component selection before importing a receptor")
+    dest = install_receptor(project, source)
+    _save_json(manual_root(project) / "inputs/receptor_review.json", {
+        "clean_sha256": _sha_file(clean),
+        "receptor_sha256": _sha_file(dest),
+        "source_path": str(Path(source).resolve()),
+        "at": datetime.now(timezone.utc).isoformat(),
+    })
+    _event(project, "RECEPTOR_IMPORTED", {"sha256": _sha_file(dest)})
+    return dest
 
 
 def compound_profile(project: Path) -> dict:
@@ -301,6 +320,9 @@ def compound_profile(project: Path) -> dict:
         labels.append(name)
     if len(set(labels)) != len(labels):
         errors.append("Duplicate compound identifiers")
+    normalized = [re.sub(r"[^A-Za-z0-9_.-]+", "_", name) for name in labels]
+    if len(set(normalized)) != len(normalized):
+        errors.append("Compound identifiers collide after filename normalization")
     if not labels:
         errors.append("No valid SDF compounds")
     manifest = _json(manual_root(project) / "ligands/manifest.json")
@@ -321,6 +343,10 @@ def _fingerprint(project: Path, step: int) -> str | None:
         clean = manual_root(project) / "inputs/protein_clean.pdb"
         receptor = manual_root(project) / "receptor.pdbqt"
         if not all(x and x.is_file() for x in (src, choice, clean, receptor)):
+            return None
+        receptor_review = _json(manual_root(project) / "inputs/receptor_review.json")
+        if (receptor_review.get("clean_sha256") != _sha_file(clean) or
+                receptor_review.get("receptor_sha256") != _sha_file(receptor)):
             return None
         return _digest({
             "source": _sha_file(src), "choice": _sha_file(choice),
@@ -376,6 +402,10 @@ def approve(project: Path, step: int) -> dict:
             raise RuntimeError("Select a crystal ligand or manual coordinates and save protein review")
         if not (manual_root(project) / "receptor.pdbqt").is_file():
             raise RuntimeError("Prepare or import a receptor PDBQT before approving protein")
+        receptor_review = _json(manual_root(project) / "inputs/receptor_review.json")
+        if (receptor_review.get("clean_sha256") != _sha_file(manual_root(project) / "inputs/protein_clean.pdb")
+                or receptor_review.get("receptor_sha256") != _sha_file(manual_root(project) / "receptor.pdbqt")):
+            raise RuntimeError("Receptor PDBQT is not associated with the current reviewed protein. Reimport or reprepare it.")
         receptor = manual_root(project) / "receptor.pdbqt"
         if _sha_file(receptor) is None:
             raise RuntimeError("Invalid receptor")
