@@ -310,11 +310,11 @@ def create_app(workspace=None):
 
     @app.post('/projects/{project_id}/guided/action')
     def guided_run_action(project_id:str, action:str=Form(...)):
-        from .guided_workflow import approved, compound_profile, ready_to_dock, _json
-        from .manual_docking import launch, root as manual_root
+        from .guided_workflow import approved, compound_profile, ready_to_dock, import_existing_compounds, _json
+        from .manual_docking import launch, root as manual_root, job_status
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
-        if action not in ('receptor','prepare','grid','dock'):
+        if action not in ('receptor','prepare','reuse_compounds','grid','dock'):
             raise HTTPException(status_code=400,detail='Unknown step action')
         try:
             if action == 'receptor':
@@ -328,6 +328,13 @@ def create_app(workspace=None):
                 if profile.get('errors') or not profile.get('available'):
                     raise RuntimeError('Compound SDF must contain valid, uniquely named molecules: '+ '; '.join(profile.get('errors',[])))
                 step=3
+            elif action == 'reuse_compounds':
+                if not approved(project,2):
+                    raise RuntimeError('Approve Step 2 first')
+                if job_status(project).get('status') == 'RUNNING':
+                    raise RuntimeError('Wait until the active manual task is finished')
+                import_existing_compounds(project)
+                return RedirectResponse(f'/projects/{project_id}/guided/3',status_code=303)
             elif action == 'grid':
                 if not approved(project,2) or not approved(project,3):
                     raise RuntimeError('Approve both protein and compound preparation first')
