@@ -168,7 +168,8 @@ def create_app(workspace=None):
                               remove_waters:str|None=Form(None),
                               padding:float=Form(8.0), center_x:str=Form(''),
                               center_y:str=Form(''), center_z:str=Form(''),
-                              exploratory_metal_free:str|None=Form(None)):
+                              exploratory_metal_free:str|None=Form(None),
+                              acknowledge_non_ligand_component:str|None=Form(None)):
         from .guided_workflow import select_protein
         from .manual_docking import settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
@@ -177,7 +178,8 @@ def create_app(workspace=None):
             center=None if ligand_key else (float(center_x),float(center_y),float(center_z))
             select_protein(project, ligand_key=ligand_key or None,
                            remove_groups=remove_groups, remove_waters=bool(remove_waters),
-                           center=center, padding=padding)
+                           center=center, padding=padding,
+                           acknowledge_non_ligand_component=bool(acknowledge_non_ligand_component))
             values=manual_settings(project)
             values["allow_missing_metal"]=bool(exploratory_metal_free)
             save_settings(project, values)
