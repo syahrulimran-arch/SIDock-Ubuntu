@@ -207,3 +207,80 @@ def test_failed_receptor_preparation_displays_log_on_step2(tmp_path):
     assert "Download complete Meeko log" in html
     assert (folder / "inputs/protein_clean.pdb").is_file()
     assert not (folder / "receptor.pdbqt").exists()
+
+
+
+def test_exploratory_metal_free_requires_ack_and_preserves_original(tmp_path, monkeypatch):
+    """Ni removal must be confined to an audited *temporary* Meeko input."""
+    from sidock_ubuntu.guided_workflow import prepare_protein
+    from sidock_ubuntu.manual_docking import settings, save_settings
+    from sidock_ubuntu import core
+    import json
+
+    p = new_project(tmp_path)
+    select_protein(p, ligand_key="HAE:C:800",
+                   remove_groups=[], remove_waters=True)
+    folder = manual_root(p)
+    clean = folder/"inputs/protein_clean.pdb"
+    original = p/"input/protein.pdb"
+    original_before = original.read_bytes()
+    clean_before = clean.read_bytes()
+    old_log = folder/"logs/receptor_meeko.log"
+    old_log.parent.mkdir(parents=True, exist_ok=True)
+    old_log.write_text("Previously failed: NI template missing\n")
+
+    with pytest.raises(RuntimeError, match="acknowledgment"):
+        prepare_protein(p, exploratory_metal_free=True)
+    assert clean.read_bytes() == clean_before
+    assert original.read_bytes() == original_before
+    assert not (folder/"inputs/protein_meeko_metal_free_input.pdb").exists()
+
+    values = settings(p)
+    values["allow_missing_metal"] = True
+    save_settings(p, values)
+
+    calls = []
+    def fake_meeko(source, destination, log, *, allow_bad_res):
+        src = Path(source).read_text()
+        calls.append({"source": str(source), "content": src,
+                      "allow_bad_res": allow_bad_res})
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        Path(destination).write_text(
+            "ATOM      1  CA  GLY C  40      30.000  70.000  72.000  1.00  0.00    +0.100 C\n"
+        )
+        Path(log).parent.mkdir(parents=True, exist_ok=True)
+        Path(log).write_text("Files written\n")
+        return Path(destination)
+
+    monkeypatch.setattr(core, "prepare_receptor", fake_meeko)
+    result = prepare_protein(p, exploratory_metal_free=True)
+    assert result["exploratory_metal_free"] is True
+    assert result["metal_removal_audit"]["excluded_metal_atoms"] == 2
+    assert result["metal_removal_audit"]["excluded_residues"] == ["NI:C:798", "NI:C:799"]
+    assert calls and calls[0]["allow_bad_res"] is False
+    assert " NI C 798" not in calls[0]["content"]
+    assert " NI C 799" not in calls[0]["content"]
+    assert "KCX C 220" in calls[0]["content"]
+    assert "ACE A   0" in calls[0]["content"]
+    assert "HAE C 800" not in calls[0]["content"]
+    assert original.read_bytes() == original_before
+    assert clean.read_bytes() == clean_before
+    assert old_log.read_text() == "Previously failed: NI template missing\n"
+    assert (folder/"logs/receptor_meeko_metal_free.log").is_file()
+    assert (folder/"receptor.pdbqt").is_file()
+    assert (folder/"inputs/metal_free_preparation_audit.json").is_file()
+    assert not (folder/"runs").exists()
+    approve(p,2)
+    assert approved(p,2)
+
+
+def test_metal_free_button_is_explicit_and_not_general_default(tmp_path):
+    from sidock_ubuntu.guided_ui import step2
+    p=new_project(tmp_path)
+    select_protein(p,ligand_key="HAE:C:800",remove_groups=[])
+    ui=step2(p)
+    assert "receptor_metal_free" in ui
+    assert "confirm_metal_free" in ui
+    assert "I_ACKNOWLEDGE_METAL_FREE" in ui
+    assert "Prepare receptor using Meeko" in ui
+    assert "no docking" in ui
