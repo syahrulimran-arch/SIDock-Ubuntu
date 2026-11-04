@@ -325,5 +325,5 @@ def test_standard_meeko_button_is_disabled_but_exploratory_remains_available(tmp
     page = step2(project)
     assert "Standard Meeko is disabled" in page
     assert "receptor_metal_free" in page
-    assert "Prepare receptor using Meeko</button>" in page
-    assert "Prepare receptor using Meeko</button>" in page.split("disabled")[1]
+    import re
+    assert re.search(r"<button[^>]*disabled[^>]*>Prepare receptor using Meeko</button>", page)
