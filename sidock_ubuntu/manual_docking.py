@@ -257,6 +257,30 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
             "Nickel atom type found in the receptor but no custom AutoDock4 parameter library is installed. "
             "Upload a scientifically justified complete AD4 parameter file in Step 4."
         )
+    if custom is not None:
+        from .nickel_reconstruction import _atom_parameter_types
+        declared = _atom_parameter_types(custom)
+        required = set(pdbqt_atom_types(receptor))
+        for ligand in ligands:
+            required.update(pdbqt_atom_types(ligand))
+        missing_types = required - declared
+        if missing_types:
+            raise RuntimeError(
+                "Custom AutoDock4 parameter library missing receptor/ligand atom types: "
+                + ", ".join(sorted(missing_types))
+            )
+    metal_review = _read_json(root(project) / "inputs/receptor_review.json")
+    if metal_review.get("metal_model"):
+        audit_path = root(project) / "inputs/Ni_reconstruction_audit.json"
+        audit = _read_json(audit_path)
+        if (custom is None
+                or audit.get("AD4_parameters_sha256") != _sha(custom)
+                or audit.get("reconstructed_sha256") != _sha(receptor)
+                or metal_review.get("metal_audit_sha256") != _sha(audit_path)):
+            raise RuntimeError(
+                "Nickel reconstruction or custom force-field SHA changed. "
+                "Reconstruct and vet the receptor before generating a grid or docking."
+            )
     values["custom_parameters_sha256"] = _sha(custom) if custom is not None else None
     values["receptor_sha256"] = _sha(receptor)
     values["ligands"] = {x.name: _sha(x) for x in ligands}
