@@ -126,8 +126,9 @@ def protein_profile(project: Path) -> dict:
     modified = _modified_polymer_keys(pdb)
     heteros = hetero_groups(pdb)
     ligands = {g.key for g in eligible_reference_groups(pdb)}
-    # Let users explicitly select uncommon small inhibitors or even buffer-class
-    # compounds as a reference, but never offer metals or polymer residues.
+    # Any nonpolymer component with coordinates can be manually proposed as a
+    # grid marker, including a likely protein cap. Its structural role must be
+    # recorded and disclosed; proposal is not native-ligand validation.
     for group in heteros:
         atom_names = {atom[12:16].strip().upper() for atom in group.atoms}
         is_modified = ((group.resname, group.chain, group.resseq) in modified
@@ -136,7 +137,7 @@ def protein_profile(project: Path) -> dict:
         heavy = sum((atom[76:78].strip().upper() or atom[12:16].strip()[0:1].upper())
                     not in {"H", "D"} for atom in group.atoms)
         if (heavy >= 2 and group.resname not in WATER | COMMON_IONS
-                and not is_modified and not is_cap):
+                and not is_modified):
             ligands.add(group.key)
     groups = []
     for group in heteros:
@@ -193,6 +194,7 @@ def select_protein(
     center: tuple[float, float, float] | None = None,
     remove_waters: bool = True,
     padding: float = 8.0,
+    acknowledge_non_ligand_component: bool = False,
 ) -> dict:
     project = project.resolve()
     profile = protein_profile(project)
@@ -201,14 +203,25 @@ def select_protein(
     valid_groups = {g["key"]: g for g in profile["groups"]}
     candidates = {g["key"] for g in profile["ligands"]}
     if ligand_key and ligand_key not in candidates:
-        raise ValueError("Selected crystal ligand must be an eligible nonpolymer ligand.")
+        raise ValueError("Selected reference component must be available in the uploaded protein.")
+    selected_role = valid_groups[ligand_key]["role"] if ligand_key else None
+    unusual_site = selected_role in {"POTENTIAL_PROTEIN_CAP", "BUFFER_OR_SOLVENT", "NONSTANDARD_OR_OTHER"}
+    if unusual_site and not acknowledge_non_ligand_component:
+        raise ValueError(
+            f"{ligand_key} is classified as {selected_role}, not a verified native inhibitor. "
+            "Tick the scientific acknowledgment if you still want to use its coordinates."
+        )
     removal = set(remove_groups)
     if removal - set(valid_groups):
         raise ValueError("Unknown residue specified for removal")
     if any(valid_groups[k]["protected"] for k in removal):
         raise ValueError("Modified protein residues cannot be removed by this workflow")
-    if ligand_key is not None:
+    if any(valid_groups[k]["role"] == "POTENTIAL_PROTEIN_CAP" for k in removal) and not acknowledge_non_ligand_component:
+        raise ValueError("Removing a possible protein cap requires explicit scientific acknowledgment.")
+    if ligand_key is not None and not unusual_site:
         removal.add(ligand_key)
+    # A likely covalent cap should not be stripped automatically. The reviewer
+    # may elect to remove it, but must acknowledge that this changes the protein.
     if remove_waters:
         removal.update(g["key"] for g in profile["groups"] if g["role"] == "WATER")
     else:
@@ -248,7 +261,7 @@ def select_protein(
         if any(v > 126 for v in npts):
             raise ValueError("Selected ligand plus padding exceeds AutoDock4 126-point grid limit; reduce padding or increase spacing.")
         npts = [max(20, n) for n in npts]
-        mode = "CRYSTAL_LIGAND"
+        mode = "USER_SELECTED_COMPONENT" if unusual_site else "CRYSTAL_LIGAND"
     else:
         if center is None or len(center) != 3 or not all(math.isfinite(float(x)) for x in center):
             raise ValueError("Without a crystal ligand, enter all three grid center coordinates manually.")
@@ -270,6 +283,15 @@ def select_protein(
         crystal.unlink()
     choice = {
         "mode": mode, "ligand_key": ligand_key,
+        "component_role": selected_role,
+        "user_selected_without_native_validation": bool(unusual_site),
+        "scientific_acknowledgment": bool(acknowledge_non_ligand_component),
+        "site_warning": (
+            f"{ligand_key} is classified as {selected_role}; using its coordinates "
+            "to place a grid does not establish a native inhibitor binding site. "
+            "A possible N-terminal acetyl cap may be covalent and is retained "
+            "unless specifically removed."
+        ) if unusual_site else None,
         "protein_sha256": _sha_file(pdb),
         "clean_sha256": _sha_file(clean),
         "removed_residues": sorted(removal), "removed_atom_counts": removed_atoms,
