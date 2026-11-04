@@ -158,8 +158,10 @@ def create_app(workspace=None):
                               remove_groups:list[str]=Form([]),
                               remove_waters:str|None=Form(None),
                               padding:float=Form(8.0), center_x:str=Form(''),
-                              center_y:str=Form(''), center_z:str=Form('')):
+                              center_y:str=Form(''), center_z:str=Form(''),
+                              exploratory_metal_free:str|None=Form(None)):
         from .guided_workflow import select_protein
+        from .manual_docking import settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
         try:
@@ -167,6 +169,9 @@ def create_app(workspace=None):
             select_protein(project, ligand_key=ligand_key or None,
                            remove_groups=remove_groups, remove_waters=bool(remove_waters),
                            center=center, padding=padding)
+            values=manual_settings(project)
+            values["allow_missing_metal"]=bool(exploratory_metal_free)
+            save_settings(project, values)
         except (ValueError,RuntimeError) as exc:
             raise HTTPException(status_code=400,detail=str(exc))
         return RedirectResponse(f'/projects/{project_id}/guided/2',status_code=303)
