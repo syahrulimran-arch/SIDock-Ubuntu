@@ -240,8 +240,13 @@ def grid(project: Path) -> dict:
     box = GridBox(t["center_x"], t["center_y"], t["center_z"],
                   t["npts_x"], t["npts_y"], t["npts_z"], t["spacing"])
     types = sorted({atom_type for ligand in ligands for atom_type in pdbqt_atom_types(ligand)})
-    result = run_grid_stage(target, run / "grid" / "production", box,
-                            types, resolve_executable("autogrid4", "AutoGrid4"))
+    try:
+        result = run_grid_stage(target, run / "grid" / "production", box,
+                                types, resolve_executable("autogrid4", "AutoGrid4"))
+    except Exception as exc:
+        logfile = run / "grid" / "production" / "autogrid.log"
+        details = logfile.read_text(encoding="utf-8", errors="replace")[-1600:] if logfile.exists() else ""
+        raise RuntimeError(f"AutoGrid failed: {exc}. Last AutoGrid output: {details}") from exc
     _save_json(run / "protocol.json", {
         "run_id": token, "settings": t,
         "receptor_sha256": _sha(root(project) / "receptor.pdbqt"),
