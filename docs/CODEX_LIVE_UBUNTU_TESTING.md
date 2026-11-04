@@ -4,12 +4,13 @@ Run this protocol with **Codex CLI on the actual Ubuntu host** in the cloned SID
 
 ## Mission
 
-Run real installed Python, Meeko, AutoGrid4, and AutoDock4 to diagnose and correct failures in the reviewed five-stage SIDock workflow. Repair source code as necessary, retest the failed stage, and write a factual local report. Never claim that mocked unit tests constitute scientific validation.
+Implement and live-test a **general-purpose receptor preparation system** for the five-stage SIDock workflow. Read `docs/GENERAL_RECEPTOR_PREPARATION_SPEC.md` before coding. Use actual installed Python, Meeko, AutoGrid4, and AutoDock4 to diagnose failures in the user's selected project. The current 4UBP project is a regression fixture, **not a receptor type the application should assume**. Repair source code as necessary, retest the failed stage, and write a factual local report. Never claim that mocked unit tests constitute scientific validation.
 
 ## Mandatory protections
 
 - Start by inspecting existing project taha-ali-almahroom5 (and project taha-ali-almahroom2 only if relevant). Check which project has the current manually reviewed protein and selected ligand. Do not create new projects to evade previous failures.
 - Record git status, current branch and HEAD. Preserve dirty worktree, original source files, prior projects, generated maps and completed DLG files. Never git reset --hard, git clean, remove original data, or overwrite historical results.
+- No PDB-ID-specific branches, no hardcoded chain/residue numbers, no assumption of exactly two Ni sites or any other fixed element count. Detect and classify structural features from each uploaded structure. Keep Ni, KCX and ACE support as optional chemistry-specific strategies rather than universal defaults.
 - Work on copies of PDB, SDF and PDBQT inside a fresh mktemp -d temporary directory for live chemistry tests. Only change original project inputs after separate explicit approval.
 - Never start the full 16-compound / 150-GA-run docking experiment as a test. One-ligand smoke tests only, and only when prerequisites are present.
 - Never delete catalytic Ni or KCX to force a successful result. Never automatically guess nickel AutoDock parameters, nickel partial charges, or RMSD; never call an unvalidated fixed-centre metal model scientifically validated.
@@ -57,6 +58,18 @@ Only if Meeko succeeds AND a complete locally available user-approved parameter 
 If the prerequisites are ready, perform one-ligand test with a tiny temporary AutoGrid/AutoDock setup, and inspect actual GPF, GLG, maps, DPF, DLG, exit codes and successful-completion marker. A smoke test is not a scientifically validated binding model. Native HAE redocking (appropriate heavy-atom RMSD and Ni-O geometry), original crystallographic ligand correctness and parameter provenance are separate required scientific validation steps.
 
 If any prerequisite is missing, stop and explicitly mark the downstream test BLOCKED; never start the full compound library to compensate.
+
+## Mandatory generalization acceptance tests
+
+Before declaring SIDock generally ready, test at least:
+- A standard non-metalloprotein lacking a crystal ligand and modified residues.
+- A protein with a different ligand and chain/residue numbering from the current test case.
+- A protein with nonstandard modified/covalent residues requiring an offline chemical component template.
+- An ion/cofactor-containing protein whose ion is **not** Ni, to confirm the Ni-specific path is not launched or misapplied.
+- A protein with zero-occupancy/missing side-chain atoms, to confirm the problem is reported and repair is reviewed, not silently forced.
+- The current 4UBP test as an additional regression case only.
+
+Document whether each scenario was unit tested, live tested or blocked. Do not claim general metal parameterization, automatic chemical template generation or reference-based structural repair is complete until it has been built and tested independently.
 
 ## Deliverables
 
