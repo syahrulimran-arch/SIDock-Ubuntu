@@ -305,9 +305,15 @@ def select_protein(
     return choice
 
 
-def prepare_protein(project: Path) -> dict:
-    """One receptor preparation attempt. No AutoGrid or docking. Never discard bad residues."""
+def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> dict:
+    """Prepare exactly the reviewed receptor; optional explicit metal-free branch.
+
+    The scientific clean PDB and original input are NEVER modified. The
+    exploratory branch removes nickel only from a distinct Meeko input file,
+    keeps a separate log, and records which ions were excluded.
+    """
     from .core import prepare_receptor
+    from .manual_docking import settings as manual_settings
     project = project.resolve()
     choice = _json(manual_root(project) / "inputs/protein_choice.json")
     if not choice:
@@ -315,12 +321,73 @@ def prepare_protein(project: Path) -> dict:
     src = manual_root(project) / "inputs/protein_clean.pdb"
     if _sha_file(src) != choice["clean_sha256"]:
         raise RuntimeError("The cleaned PDB changed after review; review the protein again")
-    target = manual_root(project) / "inputs/protein_meeko.pdbqt"
-    log = manual_root(project) / "logs/receptor_meeko.log"
-    prepared = prepare_receptor(src, target, log, allow_bad_res=False)
+    folder = manual_root(project) / "inputs"
+    removal_audit = None
+    if exploratory_metal_free:
+        if not manual_settings(project).get("allow_missing_metal"):
+            raise RuntimeError(
+                "Explicit exploratory metal-free acknowledgment required in Step 2"
+            )
+        lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
+        metals = [
+            line for line in lines
+            if line.startswith("HETATM") and line[17:20].strip().upper() == "NI"
+        ]
+        if not metals:
+            raise RuntimeError(
+                "Reviewed receptor has no crystallographic NI atoms. "
+                "Use standard receptor preparation instead."
+            )
+        temp = folder / "protein_meeko_metal_free_input.pdb"
+        temp.write_text(
+            "\n".join(line for line in lines if line not in metals) + "\n",
+            encoding="utf-8",
+        )
+        removal_audit = {
+            "reason": "EXPLORATORY_METAL_FREE_MEEKO_PREPARATION",
+            "excluded_metal_atoms": len(metals),
+            "excluded_residues": sorted({
+                f"{line[17:20].strip()}:{line[21:22].strip() or '-'}:{line[22:27].strip()}"
+                for line in metals
+            }),
+            "reviewed_clean_pdb_sha256": _sha_file(src),
+            "temporary_meeko_pdb_sha256": _sha_file(temp),
+            "warning": (
+                "Exploratory metal-free receptor: nickel coordination is absent; "
+                "not a validated urease metal-site docking model."
+            ),
+        }
+        src_for_meeko = temp
+        target = folder / "protein_meeko_metal_free.pdbqt"
+        log = manual_root(project) / "logs/receptor_meeko_metal_free.log"
+        _save_json(folder / "metal_free_preparation_audit.json", removal_audit)
+    else:
+        src_for_meeko = src
+        target = folder / "protein_meeko.pdbqt"
+        log = manual_root(project) / "logs/receptor_meeko.log"
+    prepared = prepare_receptor(src_for_meeko, target, log, allow_bad_res=False)
+    if exploratory_metal_free:
+        from .manual_docking import pdbqt_atom_types
+        if any(t.upper() == "NI" for t in pdbqt_atom_types(prepared)):
+            raise RuntimeError(
+                "Metal-free Meeko output unexpectedly contains nickel; refusing to install"
+            )
     install_reviewed_receptor(project, prepared)
-    return {"prepared_receptor": str(prepared), "installed_receptor": str(manual_root(project) / "receptor.pdbqt"),
-            "log": str(log), "note": "This does not validate metal parameters or chemistry."}
+    result = {
+        "prepared_receptor": str(prepared),
+        "installed_receptor": str(manual_root(project) / "receptor.pdbqt"),
+        "log": str(log),
+        "exploratory_metal_free": bool(exploratory_metal_free),
+        "metal_removal_audit": removal_audit,
+        "note": "Metal-free preparation cannot validate native Ni coordination."
+                if exploratory_metal_free else "No metal treatment or force-field validation performed.",
+    }
+    _event(project, "RECEPTOR_PREPARED", {
+        "exploratory_metal_free": bool(exploratory_metal_free),
+        "receptor_sha256": _sha_file(manual_root(project) / "receptor.pdbqt"),
+        "audit": removal_audit,
+    })
+    return result
 
 
 def install_reviewed_receptor(project: Path, source: Path) -> Path:
