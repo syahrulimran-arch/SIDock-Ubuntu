@@ -173,6 +173,8 @@ def prepare(project: Path) -> dict:
     manifest_path = out / "ligands" / "manifest.json"
     manifest = _read_json(manifest_path)
     old = prepared_ligands(project)
+    if old and manifest.get("source_sha256") == fingerprint and set(manifest.get("compounds", [])) == {x.name for x in old}:
+        return {"status": "REUSED", "prepared": len(old), "ligands": [x.name for x in old]}
     if old and manifest.get("source_sha256") != fingerprint:
         raise RuntimeError("Ligand source changed; existing manual prepared ligands preserved. Use a separate project instead of overwriting them.")
     sources = split_and_minimize_sdf(sdf, out / "ligands" / "source")
@@ -208,7 +210,8 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
             "Import a metal-parameterized receptor, or explicitly enable exploratory metal-free docking."
         )
     values = {k: current[k] for k in ("center_x","center_y","center_z",
-                "npts_x","npts_y","npts_z","spacing")}
+                "npts_x","npts_y","npts_z","spacing", "ga_runs",
+                "ga_num_evals", "ga_pop_size", "ga_num_generations")}
     values["receptor_sha256"] = _sha(receptor)
     values["ligands"] = {x.name: _sha(x) for x in ligands}
     token = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:16]
@@ -270,8 +273,9 @@ def dock(project: Path) -> dict:
     dpf_dir = run / "docking" / "dpf"
     dlg_dir = run / "docking" / "dlg"
     work_dir = run / "docking" / "work"
+    from .core import parse_best_energy
     pending = [p for p in ligands if not (dlg_dir / (p.stem + ".dlg")).is_file()
-               or (dlg_dir / (p.stem + ".dlg")).stat().st_size == 0]
+               or parse_best_energy(dlg_dir / (p.stem + ".dlg")) is None]
     errors = []
     def one(ligand):
         return run_compound_docking(ligand, "receptor", work_dir, dpf_dir,
@@ -285,11 +289,26 @@ def dock(project: Path) -> dict:
                 future.result()
             except Exception as exc:
                 errors.append({"ligand": ligand.stem, "error": str(exc)})
+    import csv
+    energies = {}
+    for ligand in ligands:
+        dlg_file = dlg_dir / (ligand.stem + ".dlg")
+        energies[ligand.stem] = parse_best_energy(dlg_file) if dlg_file.is_file() else None
+    results_csv = run / "results.csv"
+    with results_csv.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(("compound_id", "lowest_docking_energy_kcal_mol", "status", "dlg_path"))
+        for ligand in ligands:
+            energy = energies[ligand.stem]
+            dlg_file = dlg_dir / (ligand.stem + ".dlg")
+            writer.writerow((ligand.stem, energy if energy is not None else "",
+                             "COMPLETE" if energy is not None else "FAILED",
+                             str(dlg_file) if dlg_file.exists() else ""))
     result = {"run_id": token, "total": len(ligands),
               "already_finished": len(ligands) - len(pending),
               "launched": len(pending),
-              "completed": sum((dlg_dir / (ligand.stem + ".dlg")).is_file() and
-                               (dlg_dir / (ligand.stem + ".dlg")).stat().st_size > 0 for ligand in ligands),
+              "completed": sum(energy is not None for energy in energies.values()),
+              "results_csv": str(results_csv),
               "errors": errors}
     _save_json(run / "docking_result.json", result)
     if errors:
