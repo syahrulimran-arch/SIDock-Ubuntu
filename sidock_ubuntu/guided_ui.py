@@ -107,9 +107,10 @@ def step2(project: Path) -> str:
     receptor = manual_root(project) / "receptor.pdbqt"
     content = [
         "<h2>Step 2 — Protein, crystal ligand and site</h2>",
-        "<p>Select the experimental ligand explicitly. SIDock will suggest a grid centered on that "
-        "ligand, but you approve it. Alternatively choose no ligand and enter grid coordinates yourself. "
-        "Review waters, ions, solvents and nonstandard residues before receptor preparation.</p>",
+        "<p>Select a deposited component to use as the grid reference, or choose no component "
+        "and enter grid coordinates. Components with potential protein/cap roles are selectable "
+        "only with explicit acknowledgment; choosing them is not native-ligand validation. "
+        "Review water, ions, solvents and modifications before preparing the receptor.</p>",
     ]
     if not profile["available"]:
         content.append(
@@ -155,23 +156,38 @@ def step2(project: Path) -> str:
             )
         content.append("</table>")
 
-    options = ["<option value=''>No crystal ligand — enter grid coordinates manually</option>"]
+    options = ["<option value=''>No reference component — enter grid coordinates manually</option>"]
     for group in profile["ligands"]:
         key = group["key"]
         options.append(
             f"<option value='{e(key)}' {'selected' if key == choice.get('ligand_key') else ''}>"
-            f"{e(key)} ({group['atoms']} atoms)</option>"
+            f"{e(key)} ({group['atoms']} atoms; {e(group['role'])})</option>"
         )
     current = settings(project)
     padding = choice.get("padding", 8.0)
     checked_waters = choice.get("remove_waters", True)
+    if any("4UBP" in line.upper() for line in profile["headers"]) and not any(
+        x["code"] == "HAE" for x in profile["groups"]
+    ):
+        content.append(
+            "<p><b>4UBP note:</b> The uploaded PDB has no HAE inhibitor coordinates. "
+            "The deposited 4UBP structure contains HAE at the nickel catalytic center. "
+            "ACE:A:0 is an N-terminal acetyl group, not that inhibitor. "
+            "Selecting ACE would place the box around the protein terminus instead.</p>"
+        )
     content.append(
-        f"<label><b>Crystal ligand:</b> <select name='ligand_key'>{''.join(options)}</select></label>"
+        f"<label><b>Grid reference component (manual selection):</b> "
+        f"<select name='ligand_key'>{''.join(options)}</select></label>"
+        "<label><input type='checkbox' name='acknowledge_non_ligand_component' value='on' "
+        + ("checked" if choice.get("scientific_acknowledgment") else "") + "> "
+        "I understand that selecting or removing a potential protein cap/buffer as a reference "
+        "does not establish a native ligand binding site, and may change protein chemistry.</label>"
         f"<label><input type='checkbox' name='remove_waters' value='on' "
         f"{'checked' if checked_waters else ''}> Remove crystallographic waters</label>"
-        "<p><small>When a crystal ligand is selected, its atoms are extracted separately "
-        "and removed from the docking receptor. Other selected removals are recorded "
-        "in the audit. Metal ions are retained unless explicitly checked above.</small></p>"
+        "<p><small>A verified ligand is extracted and removed from the receptor. "
+        "Potential protein caps such as ACE are retained unless you expressly tick Remove "
+        "in the component table. All changes are recorded. Metal ions remain unless "
+        "you choose otherwise.</small></p>"
         f"<label>Binding-site padding (Å) <input type='number' step='0.5' min='1' max='20' "
         f"name='padding' value='{e(padding)}'></label>"
         f"<label><input type='checkbox' name='exploratory_metal_free' value='on' "
@@ -192,10 +208,12 @@ def step2(project: Path) -> str:
             f"<b>center:</b> {e(choice.get('center'))}; "
             f"<b>grid points:</b> {e(choice.get('npts'))}</p>"
             f"<p>Removed components: {e(', '.join(choice.get('removed_residues', [])) or 'None')}</p>"
+            + (f"<p><b>Scientific warning:</b> {e(choice['site_warning'])}</p>"
+               if choice.get('site_warning') else "")
             f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/protein_clean.pdb'>"
             "Inspect cleaned receptor PDB</a>"
             + (f" | <a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/crystal_ligand.pdb'>"
-               "Crystal ligand PDB</a>" if choice.get("ligand_key") else "")
+               "Selected reference component PDB</a>" if choice.get("ligand_key") else "")
             + "</p>"
         )
         content.append(
