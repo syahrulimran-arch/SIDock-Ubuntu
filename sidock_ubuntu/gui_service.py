@@ -338,9 +338,16 @@ def _worker_entry(project_str, job_id, config, reference_ligand):
         update_job(project,status='STARTING',pid=os.getpid(),process_start_identity=process_identity(os.getpid()),started_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),backend_state_at_start=project_status(project))
         update_job(project,status='RUNNING')
         data=json.loads((project/'project.json').read_text(encoding='utf-8')); override=reference_ligand or ((project/'.gui_reference_override').read_text(encoding='utf-8').strip() if (project/'.gui_reference_override').exists() else None)
-        run_stage_runner(project,Path(data['receptor_source']),Path(data['ligand_source']),config=config or load_config(),reference_ligand=override)
-        update_job(project,status='SUCCEEDED',exit_code=0,finished_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),backend_state_at_finish=project_status(project))
-        with log.open('a',encoding='utf-8') as fh: fh.write(f'job {job_id} SUCCEEDED\n')
+        outcome=run_stage_runner(project,Path(data['receptor_source']),Path(data['ligand_source']),config=config or load_config(),reference_ligand=override)
+        final_state=project_status(project)
+        scientific_status=derived_project_status(final_state)
+        pipeline_status=outcome.get('status') if isinstance(outcome,dict) else None
+        # A clean Python return is NOT evidence of scientific success. The
+        # StageRunner returns BLOCKED on global preparation/validation failure.
+        failed=pipeline_status in {'BLOCKED','FAILED'} or scientific_status in {'BLOCKED','FAILED'}
+        error={'type':'ScientificPipelineFailed','message':f'Pipeline={pipeline_status}; scientific={scientific_status}'} if failed else None
+        update_job(project,status='FAILED' if failed else 'SUCCEEDED',exit_code=2 if failed else 0,last_error=error,finished_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),backend_state_at_finish=final_state)
+        with log.open('a',encoding='utf-8') as fh: fh.write(f'job {job_id} {"FAILED" if failed else "SUCCEEDED"}: {error or scientific_status}\n')
     except ProjectExecutionLocked as exc:
         update_job(project,status='FAILED',exit_code=75,last_error={'type':type(exc).__name__,'message':'PROJECT_LOCKED'},finished_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),backend_state_at_finish=project_status(project))
         with log.open('a',encoding='utf-8') as fh: fh.write('PROJECT_LOCKED\n')
