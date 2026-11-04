@@ -340,9 +340,13 @@ def step2(project: Path) -> str:
             )
     content.append(job_view(project))
     from .receptor_diagnostics import read_receptor_diagnostics
-    diagnostic_action = job.get("action") in {"receptor", "receptor_metal_free"}
+    diagnostic_action = job.get("action") in {
+        "receptor", "receptor_metal_free", "receptor_ni_intermediate"
+    }
     diagnostics = read_receptor_diagnostics(
-        project, exploratory_metal_free=job.get("action") == "receptor_metal_free"
+        project,
+        exploratory_metal_free=job.get("action") == "receptor_metal_free",
+        nickel_intermediate=job.get("action") == "receptor_ni_intermediate",
     )
     if diagnostics.get("available") and (
         diagnostic_action and job.get("status") in {"FAILED", "EXITED"}
@@ -368,7 +372,7 @@ def step2(project: Path) -> str:
             "<details open><summary>Actual Meeko output (last 70 nonblank lines)</summary>"
             f"<pre style='max-height:28rem;overflow:auto;white-space:pre-wrap'>"
             f"{e(diagnostics['last_log_lines'])}</pre></details>"
-            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/{e('receptor_meeko_metal_free.log' if job.get('action') == 'receptor_metal_free' else 'receptor_meeko.log')}'>"
+            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/{e('receptor_meeko_Ni_intermediate.log' if job.get('action') == 'receptor_ni_intermediate' else 'receptor_meeko_metal_free.log' if job.get('action') == 'receptor_metal_free' else 'receptor_meeko.log')}'>"
             "Download complete Meeko log</a></p>"
         )
     content.append(
