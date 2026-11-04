@@ -46,27 +46,54 @@ def hetero_groups(pdb: Path) -> list[HeteroGroup]:
         grouped[key].append(line)
     return [HeteroGroup(r, c, n, tuple(lines)) for (r, c, n), lines in grouped.items()]
 
+def _modified_polymer_keys(pdb: Path) -> set[tuple[str, str, str]]:
+    """MODRES identifies residues covalently within the protein, not ligands."""
+    keys = set()
+    for line in Path(pdb).read_text(encoding='utf-8', errors='replace').splitlines():
+        if line.startswith('MODRES'):
+            keys.add((line[12:15].strip().upper(), line[16:17].strip(), line[18:23].strip()))
+    return keys
+
+
+def eligible_reference_groups(pdb: Path) -> list[HeteroGroup]:
+    """Select genuine nonpolymer ligand groups; keep KCX/other modified residues in protein."""
+    modified = _modified_polymer_keys(pdb)
+    candidates = []
+    for group in hetero_groups(pdb):
+        if group.resname in WATER | COMMON_IONS | COMMON_BUFFER | set(AMINO_HEAVY):
+            continue
+        if (group.resname, group.chain, group.resseq) in modified:
+            continue
+        heavy = [line for line in group.atoms if (line[76:78].strip().upper() or line[12:16].strip()[0:1].upper()) not in {'H', 'D'}]
+        if len(heavy) < 3:
+            continue
+        # Many modified residues are encoded as HETATM without MODRES in
+        # processed files. A peptide backbone is not a ligand.
+        atom_names = {line[12:16].strip().upper() for line in group.atoms}
+        if {'N', 'CA', 'C', 'O'}.issubset(atom_names):
+            continue
+        candidates.append(group)
+    return candidates
+
+
 def semantic_reference_groups(pdb: Path, *, mmcif: Path | None = None) -> list[HeteroGroup]:
-    """Return candidate groups using semantic intake, including ATOM ligands."""
+    """Return eligible crystallographic ligands, never modified protein residues."""
+    eligible = {(g.resname, g.chain, g.resseq) for g in eligible_reference_groups(pdb)}
     from .structure_intake import classify_structure
     semantic = classify_structure(pdb, mmcif=mmcif)
-    wanted={(x['component'], x['chain'], x['residue_number']) for x in semantic.candidates}
-    grouped=defaultdict(list)
+    wanted = {(x['component'], x['chain'], x['residue_number']) for x in semantic.candidates} & eligible
+    grouped = defaultdict(list)
     for line in Path(pdb).read_text(encoding='utf-8', errors='replace').splitlines():
-        if not line.startswith(('ATOM','HETATM')): continue
-        key=(line[17:20].strip().upper(), line[21:22].strip(), line[22:27].strip())
-        if key in wanted: grouped[key].append(line)
-    return [HeteroGroup(r,c,n,tuple(lines)) for (r,c,n),lines in grouped.items()]
+        if not line.startswith(('ATOM', 'HETATM')):
+            continue
+        key = (line[17:20].strip().upper(), line[21:22].strip(), line[22:27].strip())
+        if key in wanted:
+            grouped[key].append(line)
+    return [HeteroGroup(r, c, n, tuple(lines)) for (r, c, n), lines in grouped.items()]
 
 
 def choose_reference_ligand(pdb: Path) -> HeteroGroup | None:
-    candidates = []
-    for group in hetero_groups(pdb):
-        if group.resname in WATER or group.resname in COMMON_IONS or group.resname in COMMON_BUFFER:
-            continue
-        if group.atom_count < 6:
-            continue
-        candidates.append(group)
+    candidates = eligible_reference_groups(pdb)
     return rank_reference_candidates(pdb, candidates)[0] if candidates else None
 
 def _candidate_metrics(group: HeteroGroup, pdb_lines: list[str]) -> dict:
@@ -95,7 +122,7 @@ def _candidate_metrics(group: HeteroGroup, pdb_lines: list[str]) -> dict:
             "protein_contacts_8A":contacts8,"candidate_status":"CREDIBLE"}
 
 def rank_reference_candidates(pdb: Path, candidates: list[HeteroGroup] | None = None) -> list[HeteroGroup]:
-    candidates = candidates if candidates is not None else [g for g in hetero_groups(pdb) if g.resname not in WATER|COMMON_IONS|COMMON_BUFFER and g.atom_count >= 6]
+    candidates = candidates if candidates is not None else eligible_reference_groups(pdb)
     lines=pdb.read_text(encoding="utf-8",errors="replace").splitlines()
     metrics={g.key:_candidate_metrics(g,lines) for g in candidates}
     # Quality-first, deterministic tie-break; chemistry-equivalent copies are ranked by occupancy,
@@ -104,7 +131,7 @@ def rank_reference_candidates(pdb: Path, candidates: list[HeteroGroup] | None = 
                                              -metrics[g.key]["heavy_atom_count"], -metrics[g.key]["protein_contacts_5A"], g.key))
 
 def reference_candidates(pdb: Path) -> list[dict]:
-    groups=[g for g in hetero_groups(pdb) if g.resname not in WATER|COMMON_IONS|COMMON_BUFFER and g.atom_count >= 6]
+    groups=eligible_reference_groups(pdb)
     ordered=rank_reference_candidates(pdb,groups); lines=pdb.read_text(encoding="utf-8",errors="replace").splitlines()
     return [{**_candidate_metrics(g,lines), "key":g.key, "rank":i+1, "recommended":i==0} for i,g in enumerate(ordered)]
 
