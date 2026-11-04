@@ -164,3 +164,14 @@ def test_ace_removal_requires_acknowledgment_and_is_audited(tmp_path):
     )
     assert "ACE:A:0" in choice["removed_residues"]
     assert "ACE A   0" not in (manual_root(p) / "inputs/protein_clean.pdb").read_text()
+
+
+
+def test_guided_step2_html_offers_ace_as_manual_grid_reference(tmp_path):
+    from sidock_ubuntu.guided_ui import step2
+    p = new_project(tmp_path)
+    html = step2(p)
+    assert 'value="ACE:A:0"' in html or "value='ACE:A:0'" in html
+    assert "acknowledge_non_ligand_component" in html
+    assert "POTENTIAL_PROTEIN_CAP" in html
+    assert "Grid reference component" in html
