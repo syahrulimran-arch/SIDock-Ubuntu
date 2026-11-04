@@ -307,6 +307,17 @@ def grid(project: Path) -> dict:
     return {"run_id": token, "status": "CREATED", "grid": str(result["gpf"])}
 
 
+def complete_dlg_energy(path: Path) -> float | None:
+    """Do not reuse truncated logs containing an early energy but no completion marker."""
+    from .core import parse_best_energy
+    if not path.is_file():
+        return None
+    content = path.read_text(encoding="utf-8", errors="replace")
+    if "Successful Completion" not in content:
+        return None
+    return parse_best_energy(path)
+
+
 def dock(project: Path) -> dict:
     project = Path(project).resolve()
     token, ligands = _run_identity(project)
@@ -326,9 +337,16 @@ def dock(project: Path) -> dict:
     dpf_dir = run / "docking" / "dpf"
     dlg_dir = run / "docking" / "dlg"
     work_dir = run / "docking" / "work"
-    from .core import parse_best_energy
-    pending = [p for p in ligands if not (dlg_dir / (p.stem + ".dlg")).is_file()
-               or parse_best_energy(dlg_dir / (p.stem + ".dlg")) is None]
+    pending = [p for p in ligands if complete_dlg_energy(dlg_dir / (p.stem + ".dlg")) is None]
+    for ligand in pending:
+        old_dlg=dlg_dir / (ligand.stem + ".dlg")
+        if old_dlg.is_file() and old_dlg.stat().st_size:
+            archive=run / "docking" / "incomplete_archives"
+            archive.mkdir(parents=True, exist_ok=True)
+            fingerprint=_sha(old_dlg)[:12]
+            backup=archive/(ligand.stem+"."+fingerprint+".incomplete.dlg")
+            if not backup.is_file():
+                shutil.copy2(old_dlg, backup)
     errors = []
     def one(ligand):
         return run_compound_docking(ligand, "receptor", work_dir, dpf_dir,
@@ -347,7 +365,7 @@ def dock(project: Path) -> dict:
     energies = {}
     for ligand in ligands:
         dlg_file = dlg_dir / (ligand.stem + ".dlg")
-        energies[ligand.stem] = parse_best_energy(dlg_file) if dlg_file.is_file() else None
+        energies[ligand.stem] = complete_dlg_energy(dlg_file)
     results_csv = run / "results.csv"
     with results_csv.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
