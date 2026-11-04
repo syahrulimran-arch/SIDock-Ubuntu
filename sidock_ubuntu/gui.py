@@ -202,6 +202,8 @@ def create_app(workspace=None):
             )
             if grid_file.exists():
                 results += f"<p><a href='/projects/{project_id}/artifacts/{root_rel}/grid/production/receptor.gpf'>View grid parameters (.gpf)</a></p>"
+            if (run/'results.csv').is_file():
+                results += f"<p><a href='/projects/{project_id}/artifacts/{root_rel}/results.csv'>Download manual results (.csv)</a></p>"
             if dlg_files:
                 results += '<details><summary>Docking logs</summary><ul>'
                 for f in dlg_files:
