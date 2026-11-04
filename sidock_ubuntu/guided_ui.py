@@ -210,7 +210,7 @@ def step2(project: Path) -> str:
             f"<p>Removed components: {e(', '.join(choice.get('removed_residues', [])) or 'None')}</p>"
             + (f"<p><b>Scientific warning:</b> {e(choice['site_warning'])}</p>"
                if choice.get('site_warning') else "")
-            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/protein_clean.pdb'>"
+            + f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/protein_clean.pdb'>"
             "Inspect cleaned receptor PDB</a>"
             + (f" | <a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/crystal_ligand.pdb'>"
                "Selected reference component PDB</a>" if choice.get("ligand_key") else "")
