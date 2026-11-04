@@ -116,7 +116,10 @@ def step2(project: Path) -> str:
         return "".join(content)
     content.append(f"<p><b>Protein source:</b> {e(profile['protein'])}</p>")
     content.extend(f"<small style='display:block'>{e(line)}</small>" for line in profile["headers"])
-    content.append("<h3>Detected components</h3>")
+    content.append(
+        f"<form method='post' action='/projects/{e(project.name)}/guided/protein-review'>"
+        "<h3>Detected components</h3>"
+    )
     if not profile["groups"]:
         content.append("<p>No nonstandard components detected. Enter a manual grid center below.</p>")
     else:
@@ -153,7 +156,6 @@ def step2(project: Path) -> str:
     padding = choice.get("padding", 8.0)
     checked_waters = choice.get("remove_waters", True)
     content.append(
-        f"<form method='post' action='/projects/{e(project.name)}/guided/protein-review'>"
         f"<label><b>Crystal ligand:</b> <select name='ligand_key'>{''.join(options)}</select></label>"
         f"<label><input type='checkbox' name='remove_waters' value='on' "
         f"{'checked' if checked_waters else ''}> Remove crystallographic waters</label>"
@@ -165,7 +167,7 @@ def step2(project: Path) -> str:
         "<h3>Manual center (used only when no ligand is selected)</h3>"
         + "".join(
             f"<label>{e(axis)} <input name='center_{axis.lower()}' type='number' step='0.001' "
-            f"value='{e(current['center_'+axis.lower()])}' required></label>"
+            f"value='{e(current['center_'+axis.lower()] if choice else '')}'></label>"
             for axis in ("X","Y","Z")
         )
         + "<button>Save protein/site review and generate cleaned PDB preview</button></form>"
