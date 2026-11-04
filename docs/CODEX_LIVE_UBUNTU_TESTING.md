@@ -13,7 +13,7 @@ Run real installed Python, Meeko, AutoGrid4, and AutoDock4 to diagnose and corre
 - Work on copies of PDB, SDF and PDBQT inside a fresh mktemp -d temporary directory for live chemistry tests. Only change original project inputs after separate explicit approval.
 - Never start the full 16-compound / 150-GA-run docking experiment as a test. One-ligand smoke tests only, and only when prerequisites are present.
 - Never delete catalytic Ni or KCX to force a successful result. Never automatically guess nickel AutoDock parameters, nickel partial charges, or RMSD; never call an unvalidated fixed-centre metal model scientifically validated.
-- Do not assume the conversation-side /mnt/data path is on the Ubuntu host. If AD4.1_bound_Ni.dat is missing locally, report it missing. Do not create a fabricated replacement.
+- Do not assume the conversation-side /mnt/data path is on Ubuntu. The user reports AD4.1_bound_Ni.dat is on their Desktop. First check "$HOME/Desktop/AD4.1_bound_Ni.dat" with test -f; if absent, use find "$HOME" -maxdepth 5 -type f -iname 'AD4.1_bound*Ni*.dat' -print to locate the actual host file (including case variations or redirected Desktop folders). Record the exact resolved path and SHA256. Never claim the file is missing without checking the Desktop first. Never create a fabricated replacement, and do not overwrite the original file.
 - No sudo, unexpected external network access, unsafe permissions, pushing to GitHub or other changes outside the repository without human approval.
 
 ## Phase A: Host and project inspection
@@ -40,13 +40,13 @@ For any failure: inspect the complete traceback, reproduce, fix narrowly, add re
 
 Use a temporary copy of the reviewed receptor. Run actual installed Meeko through the Ni-free intermediate path. Verify that Ni is removed only from the temporary input and that original PDB and cleaned PDB remain untouched. Verify KCX carbamyl atoms CX/OQ1/OQ2 survive preparation if it succeeds. Capture actual exit code and stdout/stderr. Do NOT install a metal-free intermediate as a native production receptor.
 
-If Meeko reports A:0, B:111, B:119, C:326, C:403 or other residue mismatches, diagnose exact residue/bond/terminus/altloc issues from PDB and logs. Do not silently remove residues, use --allow_bad_res as a shortcut, or invent missing atoms.
+Codex already reported a successful isolated offline KCX template test. Preserve that implementation and its regression tests. The subsequent full receptor test still identifies A:0, B:111, B:119, C:326, C:403 as unmatched; those are the immediate next blockers. Inspect their exact residue names, atom sets, adjacency, polymer connectivity and terminal/alternate-location annotations against the original PDB and Meeko's template matcher. Determine whether A:0 is an acetyl cap bonded to the protein rather than a free ligand, and inspect the other four residues independently. Fix template/representation problems narrowly on temporary copies, rerun only the Meeko intermediate stage and add targeted regression tests. Do not silently remove residues, use --allow_bad_res as a shortcut, or invent missing atoms.
 
 ## Phase D: Nickel restoration and custom AutoDock parameters
 
 Only if Meeko succeeds AND a complete locally available user-approved parameter file and individually justified Ni charge model exist:
 
-- Inspect the uploaded parameter library atom_par Ni/NI records for full atom-type coverage. Audit their source; do not treat the previous provisional community Ni values as validated for urease.
+- Read the user-provided Desktop parameter library at its **confirmed Ubuntu path** (usually "$HOME/Desktop/AD4.1_bound_Ni.dat"), verify its SHA256, both atom_par Ni/NI records, column counts and full receptor/ligand type coverage. The existence of the file removes the *file-not-found* blocker but does **not** certify its provisional community metal parameters as valid for urease. Audit the source and request a justified site-specific Ni charge model separately; do not fill missing charges by guesswork.
 - Use the actual nickel_reconstruction.py route on temp/copied inputs; verify exact crystallographic Ni positions, partial charges, atom types, Ni-Ni distance, PDBQT fixed columns and no duplicate metal atoms.
 - Inspect that identical parameter files are referenced from GPF and DPF and that the file follows to each run directory.
 - Confirm approvals become stale if receptor, parameters or nickel audit change.
