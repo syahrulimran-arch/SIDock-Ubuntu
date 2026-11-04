@@ -123,11 +123,16 @@ def step2(project: Path) -> str:
     if not profile["groups"]:
         content.append("<p>No nonstandard components detected. Enter a manual grid center below.</p>")
     else:
+        waters = [g for g in profile["groups"] if g["role"] == "WATER"]
+        if waters:
+            content.append(f"<p>{len(waters)} crystallographic water residues; use the water checkbox below.</p>")
         content.append(
             "<table><tr><th>Component</th><th>Role</th><th>Atoms</th><th>Remove from receptor?</th></tr>"
         )
         old_remove = set(choice.get("removed_residues", []))
         for group in profile["groups"]:
+            if group["role"] == "WATER":
+                continue
             key = group["key"]
             protected = group["protected"]
             selected = key in old_remove if choice else group["default_remove"]
@@ -252,8 +257,18 @@ def step3(project: Path) -> str:
             + e("; ".join(profile["errors"])) + "</p>"
         )
     html_bits.append(
-        "<details><summary>Compound IDs</summary><pre>"
-        + e("\n".join(profile["names"])) + "</pre></details>"
+        "<details><summary>Compound IDs and minimized/prepared files</summary><table>"
+        "<tr><th>Compound ID</th><th>Minimized SDF</th><th>Docking PDBQT</th></tr>"
+        + "".join(
+            "<tr><td>" + e(name) + "</td><td>"
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/source/{e(name)}.sdf'>View</a>"
+               if (manual_root(project)/"ligands/source"/(name+".sdf")).is_file() else "Not prepared")
+            + "</td><td>"
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/prepared/{e(name)}.pdbqt'>View</a>"
+               if (manual_root(project)/"ligands/prepared"/(name+".pdbqt")).is_file() else "Not prepared")
+            + "</td></tr>"
+            for name in profile["names"]
+        ) + "</table></details>"
     )
     html_bits.append(action(
         project, "prepare", "Minimize and prepare compounds",
