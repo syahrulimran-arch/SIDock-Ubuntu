@@ -163,6 +163,8 @@ def test_crystal_ni_coordinates_and_ad4_type_restored_and_audited(tmp_path, monk
     assert original == (project/"input/protein.pdb").read_bytes()
     assert clean == (root(project)/"inputs/protein_clean.pdb").read_bytes()
     assert not (root(project)/"runs").exists()
+    from sidock_ubuntu.manual_docking import settings
+    assert settings(project)["allow_missing_metal"] is False
     approve(project,2)
     assert approved(project,2)
 
