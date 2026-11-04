@@ -284,3 +284,46 @@ def test_metal_free_button_is_explicit_and_not_general_default(tmp_path):
     assert "I_ACKNOWLEDGE_METAL_FREE" in ui
     assert "Prepare receptor using Meeko" in ui
     assert "no docking" in ui
+
+
+
+def test_standard_meeko_refuses_nickel_before_running_and_keeps_existing_log(tmp_path, monkeypatch):
+    from sidock_ubuntu.guided_workflow import prepare_protein
+    from sidock_ubuntu import core
+
+    project = new_project(tmp_path)
+    select_protein(project, ligand_key="HAE:C:800", remove_groups=[], remove_waters=True)
+    folder = manual_root(project)
+    reviewed = folder / "inputs/protein_clean.pdb"
+    original = project / "input/protein.pdb"
+    original_bytes = original.read_bytes()
+    reviewed_bytes = reviewed.read_bytes()
+    log = folder / "logs/receptor_meeko.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("Original Meeko NI failure\n", encoding="utf-8")
+
+    calls = []
+    def forbidden_meeko(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("Meeko should not be launched with unsupported nickel")
+
+    monkeypatch.setattr(core, "prepare_receptor", forbidden_meeko)
+    with pytest.raises(RuntimeError, match="blocked before execution"):
+        prepare_protein(project)
+    assert not calls
+    assert reviewed.read_bytes() == reviewed_bytes
+    assert original.read_bytes() == original_bytes
+    assert log.read_text() == "Original Meeko NI failure\n"
+    assert not (folder / "receptor.pdbqt").exists()
+    assert not (folder / "runs").exists()
+
+
+def test_standard_meeko_button_is_disabled_but_exploratory_remains_available(tmp_path):
+    from sidock_ubuntu.guided_ui import step2
+    project = new_project(tmp_path)
+    select_protein(project, ligand_key="HAE:C:800", remove_groups=[], remove_waters=True)
+    page = step2(project)
+    assert "Standard Meeko is disabled" in page
+    assert "receptor_metal_free" in page
+    assert "Prepare receptor using Meeko</button>" in page
+    assert "Prepare receptor using Meeko</button>" in page.split("disabled")[1]
