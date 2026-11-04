@@ -203,6 +203,10 @@ def step2(project: Path) -> str:
         + "<button>Save protein/site review and generate cleaned PDB preview</button></form>"
     )
     if choice:
+        nickel_remains = any(
+            g["code"] == "NI" and g["key"] not in choice.get("removed_residues", [])
+            for g in profile.get("groups", [])
+        )
         content.append(
             f"<p><b>Binding-site mode:</b> {e(choice.get('mode'))}; "
             f"<b>center:</b> {e(choice.get('center'))}; "
@@ -220,16 +224,16 @@ def step2(project: Path) -> str:
             "<h3>Prepare receptor PDBQT</h3>"
             "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
             "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
-            + ("<p class='error'>This cleaned PDB retains nickel. Standard Meeko receptor preparation "
-               "may reject the metal ions. You may import a professionally parameterized metal-aware "
-               "PDBQT instead; do not automatically delete catalytic ions.</p>"
-               if any(g["code"] == "NI" and g["key"] not in choice.get("removed_residues", [])
-                      for g in profile.get("groups", [])) else "")
+            + ("<p class='error'><b>Standard Meeko is disabled:</b> this reviewed PDB contains "
+               "catalytic nickel, which Meeko cannot parameterize automatically. "
+               "For scientifically valid urease docking, import a properly parameterized "
+               "metal-containing receptor PDBQT. Alternatively, use the separate "
+               "exploratory metal-free option below. The original receptor is untouched.</p>"
+               if nickel_remains else "")
             + action(project, "receptor", "Prepare receptor using Meeko",
-                     disabled=job.get("status") == "RUNNING")
+                     disabled=nickel_remains or job.get("status") == "RUNNING")
         )
-        if any(g["code"] == "NI" and g["key"] not in choice.get("removed_residues", [])
-               for g in profile.get("groups", [])):
+        if nickel_remains:
             content.append(
                 "<h3>Optional: prepare a metal-free exploratory receptor</h3>"
                 "<p>Meeko does not support NI in this receptor. This explicit option generates "
