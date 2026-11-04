@@ -124,15 +124,33 @@ def protein_profile(project: Path) -> dict:
     if pdb is None:
         return {"available": False, "groups": [], "ligands": []}
     modified = _modified_polymer_keys(pdb)
+    heteros = hetero_groups(pdb)
     ligands = {g.key for g in eligible_reference_groups(pdb)}
+    # Let users explicitly select uncommon small inhibitors or even buffer-class
+    # compounds as a reference, but never offer metals or polymer residues.
+    for group in heteros:
+        atom_names = {atom[12:16].strip().upper() for atom in group.atoms}
+        is_modified = ((group.resname, group.chain, group.resseq) in modified
+                       or {'N', 'CA', 'C', 'O'}.issubset(atom_names))
+        is_cap = group.resname == "ACE" and group.resseq in {"0", "1"}
+        heavy = sum((atom[76:78].strip().upper() or atom[12:16].strip()[0:1].upper())
+                    not in {"H", "D"} for atom in group.atoms)
+        if (heavy >= 2 and group.resname not in WATER | COMMON_IONS
+                and not is_modified and not is_cap):
+            ligands.add(group.key)
     groups = []
-    for group in hetero_groups(pdb):
+    for group in heteros:
         key = group.key
-        is_modified = (group.resname, group.chain, group.resseq) in modified
+        atom_names = {atom[12:16].strip().upper() for atom in group.atoms}
+        is_modified = ((group.resname, group.chain, group.resseq) in modified
+                       or {'N', 'CA', 'C', 'O'}.issubset(atom_names))
+        is_cap = group.resname == "ACE" and group.resseq in {"0", "1"}
         if group.resname in WATER:
             role = "WATER"
         elif is_modified:
             role = "MODIFIED_PROTEIN"
+        elif is_cap:
+            role = "POTENTIAL_PROTEIN_CAP"
         elif group.resname in COMMON_IONS:
             role = "ION"
         elif group.resname in COMMON_BUFFER:
