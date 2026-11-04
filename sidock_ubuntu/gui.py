@@ -320,17 +320,28 @@ def create_app(workspace=None):
         return RedirectResponse(f'/projects/{project_id}/guided/{min(step+1,5)}',status_code=303)
 
     @app.post('/projects/{project_id}/guided/action')
-    def guided_run_action(project_id:str, action:str=Form(...)):
+    def guided_run_action(project_id:str, action:str=Form(...),
+                          confirm_metal_free:str|None=Form(None)):
         from .guided_workflow import approved, compound_profile, ready_to_dock, import_existing_compounds, _json
-        from .manual_docking import launch, root as manual_root, job_status
+        from .manual_docking import launch, root as manual_root, job_status, settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
-        if action not in ('receptor','prepare','reuse_compounds','grid','dock'):
+        if action not in ('receptor','receptor_metal_free','prepare','reuse_compounds','grid','dock'):
             raise HTTPException(status_code=400,detail='Unknown step action')
         try:
-            if action == 'receptor':
+            if action in ('receptor', 'receptor_metal_free'):
                 if not _json(manual_root(project)/'inputs/protein_choice.json'):
                     raise RuntimeError('First save Step 2 protein and crystal ligand choices.')
+                if action == 'receptor_metal_free':
+                    if confirm_metal_free != 'I_ACKNOWLEDGE_METAL_FREE':
+                        raise RuntimeError(
+                            'Explicitly acknowledge metal-free exploratory receptor chemistry in Step 2.'
+                        )
+                    if job_status(project).get('status') == 'RUNNING':
+                        raise RuntimeError('A manual preparation action is still active')
+                    values=manual_settings(project)
+                    values['allow_missing_metal']=True
+                    save_settings(project,values)
                 step=2
             elif action == 'prepare':
                 if not approved(project,2):
