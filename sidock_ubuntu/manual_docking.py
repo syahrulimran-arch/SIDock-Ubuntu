@@ -139,6 +139,42 @@ def _pdbqt_metals(project: Path) -> int:
                     or line[17:20].strip() == "NI"))
 
 
+def parameter_file_path(project: Path) -> Path | None:
+    file = root(project) / "custom_parameters.dat"
+    return file if file.is_file() else None
+
+
+def install_parameter_file(project: Path, source: Path) -> Path:
+    """Accept only a complete user-supplied AD4 force field library.
+
+    Nickel parameters are never guessed. A partial patch containing only Ni
+    is insufficient because AD4's parameter_file replaces the default table.
+    """
+    source = Path(source)
+    if not source.is_file() or source.stat().st_size == 0:
+        raise ValueError("Select an existing AutoDock4 parameter library file")
+    if source.stat().st_size > 2_000_000:
+        raise ValueError("Custom parameter file is unreasonably large")
+    lines = source.read_text(encoding="utf-8", errors="strict").splitlines()
+    entries = set()
+    for line in lines:
+        parts = line.split()
+        if parts and parts[0] == "atom_par" and len(parts) >= 12:
+            entries.add(parts[1])
+    if not {"C", "N", "OA", "HD"}.issubset(entries):
+        raise ValueError("Supply a full AD4 parameter file with standard C, N, OA and HD atom_par records, not a Ni-only patch")
+    receptor = root(project) / "receptor.pdbqt"
+    present_types = set(pdbqt_atom_types(receptor)) if receptor.is_file() else set()
+    missing = {t for t in present_types if t not in entries}
+    if missing:
+        raise ValueError("Parameter library lacks receptor atom types: " + ", ".join(sorted(missing)))
+    target = root(project) / "custom_parameters.dat"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != target.resolve():
+        shutil.copy2(source, target)
+    return target
+
+
 def install_receptor(project: Path, source: Path) -> Path:
     project = Path(project).resolve()
     source = Path(source).resolve()
@@ -214,6 +250,14 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
     values = {k: current[k] for k in ("center_x","center_y","center_z",
                 "npts_x","npts_y","npts_z","spacing", "ga_runs",
                 "ga_num_evals", "ga_pop_size", "ga_num_generations")}
+    custom = parameter_file_path(project)
+    metal_types = {x for x in pdbqt_atom_types(receptor) if x.upper() == "NI"}
+    if metal_types and custom is None:
+        raise RuntimeError(
+            "Nickel atom type found in the receptor but no custom AutoDock4 parameter library is installed. "
+            "Upload a scientifically justified complete AD4 parameter file in Step 4."
+        )
+    values["custom_parameters_sha256"] = _sha(custom) if custom is not None else None
     values["receptor_sha256"] = _sha(receptor)
     values["ligands"] = {x.name: _sha(x) for x in ligands}
     token = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:16]
@@ -244,7 +288,8 @@ def grid(project: Path) -> dict:
     types = sorted({atom_type for ligand in ligands for atom_type in pdbqt_atom_types(ligand)})
     try:
         result = run_grid_stage(target, run / "grid" / "production", box,
-                                types, resolve_executable("autogrid4", "AutoGrid4"))
+                                types, resolve_executable("autogrid4", "AutoGrid4"),
+                                parameter_file=parameter_file_path(project))
     except Exception as exc:
         logfile = run / "grid" / "production" / "autogrid.log"
         details = logfile.read_text(encoding="utf-8", errors="replace")[-1600:] if logfile.exists() else ""
@@ -256,6 +301,7 @@ def grid(project: Path) -> dict:
         "metal_atoms_original": _input_metals(project),
         "metal_atoms_prepared": _pdbqt_metals(project),
         "validation": "NOT_PERFORMED",
+        "custom_parameter_sha256": _sha(parameter_file_path(project)) if parameter_file_path(project) else None,
         "method": "MANUAL_AUTODOCK4",
     })
     return {"run_id": token, "status": "CREATED", "grid": str(result["gpf"])}
@@ -287,7 +333,8 @@ def dock(project: Path) -> dict:
     def one(ligand):
         return run_compound_docking(ligand, "receptor", work_dir, dpf_dir,
                                      dlg_dir, pdbqt_atom_types(ligand),
-                                     params, resolve_executable("autodock4", "AutoDock4"))
+                                     params, resolve_executable("autodock4", "AutoDock4"),
+                                     parameter_file=parameter_file_path(project))
     with ThreadPoolExecutor(max_workers=min(len(pending) or 1, t["parallel_jobs"])) as pool:
         futures = {pool.submit(one, ligand): ligand for ligand in pending}
         for future in as_completed(futures):
