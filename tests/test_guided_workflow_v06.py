@@ -175,3 +175,35 @@ def test_guided_step2_html_offers_ace_as_manual_grid_reference(tmp_path):
     assert "acknowledge_non_ligand_component" in html
     assert "POTENTIAL_PROTEIN_CAP" in html
     assert "Grid reference component" in html
+
+
+
+def test_failed_receptor_preparation_displays_log_on_step2(tmp_path):
+    from sidock_ubuntu.guided_ui import step2
+    from sidock_ubuntu.manual_docking import root as manual_root
+    import json
+
+    p = new_project(tmp_path)
+    select_protein(p, ligand_key="ACE:A:0", remove_groups=[],
+                   acknowledge_non_ligand_component=True)
+    folder = manual_root(p)
+    (folder / "logs").mkdir(parents=True, exist_ok=True)
+    (folder / "logs/receptor_meeko.log").write_text(
+        "Template generation failed for unknown residues: {'NI'}\n"
+        "No template matched for residue_key='A:0'\n"
+        "Error: Creation of data structure for receptor failed.\n"
+    )
+    (folder / "job.json").write_text(json.dumps({
+        "status": "FAILED",
+        "action": "receptor",
+        "error": "Receptor preparation failed"
+    }))
+    html = step2(p)
+    assert "Why Meeko failed" in html
+    assert "Unsupported component templates:" in html
+    assert "Unmatched residues:" in html
+    assert "NI" in html
+    assert "A:0" in html
+    assert "Download complete Meeko log" in html
+    assert (folder / "inputs/protein_clean.pdb").is_file()
+    assert not (folder / "receptor.pdbqt").exists()
