@@ -217,11 +217,17 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
     ]
     final = root(project) / "inputs/protein_Ni_reconstructed.pdbqt"
     # Maintain Meeko protein atoms exactly; append Ni at rigid receptor tail.
-    final.write_text(intermediate_text.rstrip("\n")+"\n"+"".join(result_lines),
-                     encoding="utf-8")
+    # Keep the metal records inside the rigid PDBQT body, before any END
+    # marker. Meeko versions differ in whether they include terminal records.
+    base_lines = intermediate_text.splitlines()
+    end_marker = next((i for i, line in enumerate(base_lines)
+                       if line.strip() in {"END", "ENDMDL"}), len(base_lines))
+    base_lines[end_marker:end_marker] = [line.rstrip("\n") for line in result_lines]
+    final.write_text("\n".join(base_lines) + "\n", encoding="utf-8")
     output_metal = [x for x in final.read_text().splitlines()
                     if x.startswith(("ATOM", "HETATM")) and x[17:20].strip() == "NI"]
     if len(output_metal) != len(metals):
+        final.unlink(missing_ok=True)
         raise RuntimeError("Reconstruction atom count mismatch")
     for source_site, output in zip(metals, output_metal):
         observed = [float(output[i:i+8]) for i in (30, 38, 46)]
