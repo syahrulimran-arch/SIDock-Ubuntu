@@ -6,7 +6,8 @@ import math
 import re
 from pathlib import Path
 
-IC50_KEYS = ("IC50", "IC50_UM", "IC50_uM", "IC50 (uM)", "IC50_MICROMOLAR", "IC50 µM")
+IC50_KEYS = ("IC50", "IC50_UM", "IC50_uM", "IC50 (uM)", "IC50_MICROMOLAR", "IC50 µM",
+             "IC50_nM", "IC50 (nM)", "IC50_mM", "IC50 (mM)")
 ID_KEYS = ("Compound_ID", "COMPOUND_ID", "ID", "Name", "NAME")
 
 
@@ -14,8 +15,13 @@ def _float(value: str | None) -> float | None:
     if value is None:
         return None
     text = str(value).strip().replace("µ", "u").replace("μ", "u")
-    m = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)
-    return float(m.group(0)) if m else None
+    # Qualified ranges (e.g. >10), uncertainties and unrecognized units are
+    # not exact measurements and must not enter a numerical correlation.
+    m = re.fullmatch(r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(uM|nM|mM|M)?", text)
+    if not m:
+        return None
+    value = float(m.group(1)) * {None: 1.0, 'uM': 1.0, 'nM': 0.001, 'mM': 1000.0, 'M': 1e6}[m.group(2)]
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def extract_sdf_assay(sdf: Path, destination: Path) -> list[dict[str, object]]:
@@ -28,7 +34,14 @@ def extract_sdf_assay(sdf: Path, destination: Path) -> list[dict[str, object]]:
         props = {k: mol.GetProp(k) for k in mol.GetPropNames()}
         name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
         ligand = next((props[k].strip() for k in ID_KEYS if k in props and props[k].strip()), name)
-        raw = next((props[k] for k in IC50_KEYS if k in props), None)
+        key = next((k for k in IC50_KEYS if k in props), None)
+        raw = props.get(key) if key else None
+        if raw and re.fullmatch(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", raw.strip()):
+            units = next((props[k].strip() for k in ("IC50_unit", "IC50_units", "IC50_UNIT", "IC50_UNITS") if k in props), None)
+            if units is None and key:
+                units = "nM" if "nM" in key else "mM" if "mM" in key else None
+            if units:
+                raw = raw.strip() + " " + units
         ic50 = _float(raw)
         rows.append({"ligand": ligand, "ic50_uM": ic50, "pIC50": (-math.log10(ic50 * 1e-6) if ic50 and ic50 > 0 else None), "input_record_index": idx, "final_status": "ACCEPTED" if ligand else "REJECTED", "failure_reason": "" if ligand else "missing compound ID"})
     destination.parent.mkdir(parents=True, exist_ok=True)

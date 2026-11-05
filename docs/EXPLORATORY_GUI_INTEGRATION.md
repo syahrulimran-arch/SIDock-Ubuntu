@@ -14,7 +14,7 @@
 3. Tick the acknowledgement under **Approve Open Babel receptor for exploratory docking** and click **Approve for exploratory docking and continue**. The accepted state is `EXPLORATORY_UNVALIDATED_NI_MODEL`, `scientific_approval=false`. It does **not** copy the exploratory receptor onto `manual_docking/receptor.pdbqt`.
 4. **Step 3** should show the existing prepared ligand set. If it says `Verified preparations: Yes`, click **Approve and continue**. No re-minimization is required. Files belong to individual projects: prepared ligands from another SIDock project are not silently imported.
 5. In **Step 4**, review center, box coverage, spacing, GA settings and parameter library. The grid must cover the intended pocket and all tested ligand sizes; the previous 20×20×20 smoke-test box is NOT a production grid. Click **Generate AutoGrid4 maps** only when ready, inspect the GPF and then approve Step 4.
-6. **Step 5** remains locked until Steps 2–4 are approved. Starting/resuming docking is a separate explicit click; no full-library docking begins by approving earlier stages.
+6. **Step 5** docking remains locked until Steps 2–4 are approved. Starting/resuming docking is a separate explicit click; no full-library docking begins by approving earlier stages. Successful docking automatically starts the connected analysis. For already completed DLGs, click **Analyse existing results — no redocking**. Reports, figures, the editable draft, evidence and a complete ZIP are linked in the same page. See [guided analysis](GUIDED_ANALYSIS.md) for details.
 
 ## Integrity/safety
 

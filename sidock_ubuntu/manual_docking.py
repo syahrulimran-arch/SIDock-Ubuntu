@@ -425,6 +425,10 @@ def grid(project: Path) -> dict:
         raise RuntimeError(f"AutoGrid failed: {exc}. Last AutoGrid output: {details}") from exc
     _save_json(run / "protocol.json", {
         "run_id": token, "settings": t,
+        "target": {
+            "pdb": Path(_read_json(project / "project.json").get("receptor_source") or "protein.pdb").name,
+            "reference_ligand": _read_json(root(project) / "inputs/protein_choice.json").get("ligand_key"),
+        },
         "receptor_sha256": _sha(active_receptor),
         "model_status": model_status,
         "scientific_approval": False,  # Manual/technical operation does not prove scientific validation
@@ -564,9 +568,11 @@ def job_status(project: Path) -> dict:
     return job
 
 
-def launch(project: Path, action: str) -> dict:
-    if action not in {"prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "receptor_openbabel_pipeline", "receptor_openbabel_charged", "receptor_openbabel_hydrogen_audit", "receptor_openbabel_exploratory", "exploratory_smoke", "grid", "dock"}:
+def launch(project: Path, action: str, *, run_id: str | None = None) -> dict:
+    if action not in {"prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "receptor_openbabel_pipeline", "receptor_openbabel_charged", "receptor_openbabel_hydrogen_audit", "receptor_openbabel_exploratory", "exploratory_smoke", "grid", "dock", "analyze"}:
         raise ValueError("Unsupported manual action")
+    if run_id is not None and (action != "analyze" or not re.fullmatch(r"[0-9a-f]{16}", run_id)):
+        raise ValueError("A saved docking run ID is accepted only for analysis")
     with _job_file_lock(project):
         if job_status(project).get("status") == "RUNNING":
             raise RuntimeError("A manual SIDock action is already running")
@@ -575,7 +581,7 @@ def launch(project: Path, action: str) -> dict:
         with logfile.open("a", encoding="utf-8") as out:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "sidock_ubuntu.manual_docking",
-                 str(Path(project).resolve()), action],
+                 str(Path(project).resolve()), action] + (["--run-id", run_id] if run_id else []),
                 cwd=str(Path(__file__).resolve().parent.parent),
                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                 start_new_session=True,
@@ -586,7 +592,7 @@ def launch(project: Path, action: str) -> dict:
     return job
 
 
-def execute(project: Path, action: str) -> dict:
+def execute(project: Path, action: str, *, run_id: str | None = None) -> dict:
     path = job_path(project)
     try:
         from .guided_workflow import prepare_protein
@@ -594,6 +600,7 @@ def execute(project: Path, action: str) -> dict:
         from .openbabel_receptor import (generate_candidate, generate_protonated_charge_candidate,
                                          audit_and_correct_hydrogen_types, prepare_exploratory_receptor, prepare_openbabel_receptor)
         from .exploratory_docking import run_exploratory_smoke
+        from .guided_analysis import analyze
         results = {"prepare": prepare, "receptor": prepare_protein,
                    "receptor_metal_free": lambda p: prepare_protein(p, exploratory_metal_free=True),
                    "receptor_ni_intermediate": prepare_intermediate,
@@ -603,11 +610,19 @@ def execute(project: Path, action: str) -> dict:
                    "receptor_openbabel_hydrogen_audit": audit_and_correct_hydrogen_types,
                    "receptor_openbabel_exploratory": prepare_exploratory_receptor,
                    "exploratory_smoke": run_exploratory_smoke,
-                   "grid": grid, "dock": dock}[action](project)
+                   "grid": grid, "dock": dock,
+                   "analyze": lambda p: analyze(p, run_id=run_id)}[action](project)
+        if action == "dock":
+            try:
+                results["analysis"] = analyze(project, run_id=results["run_id"])
+            except Exception as exc:
+                results["analysis"] = {"status": "FAILED", "error": str(exc), "docking_rerun": False}
+        incomplete_analysis = (results.get("analysis", results).get("status") in {"PARTIAL", "FAILED"})
         with _job_file_lock(project):
             job = _read_json(path)
-            job.update({"status": "SUCCEEDED", "result": results,
-                        "error": None,
+            analysis_error = results.get("analysis", {}).get("error")
+            job.update({"status": "SUCCEEDED_WITH_WARNINGS" if incomplete_analysis else "SUCCEEDED", "result": results,
+                        "error": "Docking completed; analysis failed: " + analysis_error if analysis_error else None,
                         "finished": datetime.now(timezone.utc).isoformat()})
             _save_json(path, job)
         return results
@@ -623,13 +638,14 @@ def execute(project: Path, action: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Explicit manual AutoDock4 runner")
     parser.add_argument("project", type=Path)
-    parser.add_argument("action", choices=("prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "receptor_openbabel_pipeline", "receptor_openbabel_charged", "receptor_openbabel_hydrogen_audit", "receptor_openbabel_exploratory", "exploratory_smoke", "grid", "dock", "status"))
+    parser.add_argument("action", choices=("prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "receptor_openbabel_pipeline", "receptor_openbabel_charged", "receptor_openbabel_hydrogen_audit", "receptor_openbabel_exploratory", "exploratory_smoke", "grid", "dock", "analyze", "status"))
+    parser.add_argument("--run-id", help="Saved docking run to analyse without rerunning docking")
     args = parser.parse_args()
     if args.action == "status":
         print(json.dumps({"settings": settings(args.project),
                           "job": job_status(args.project)}, indent=2))
     else:
-        print(json.dumps(execute(args.project, args.action), indent=2))
+        print(json.dumps(execute(args.project, args.action, run_id=args.run_id), indent=2))
 
 
 if __name__ == "__main__":

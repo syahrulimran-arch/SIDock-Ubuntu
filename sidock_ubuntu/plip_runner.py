@@ -26,6 +26,8 @@ SCHEMA=['compound_id','pose_id','interaction_type','protein_chain','protein_resi
 def _obabel_convert(source: Path, destination: Path, *, runner=subprocess.run) -> Path:
     destination.parent.mkdir(parents=True,exist_ok=True)
     p=runner(['obabel',str(source),'-O',str(destination)],capture_output=True,text=True)
+    destination.with_suffix('.conversion.log').write_text(
+        str(getattr(p, 'stdout', '') or '') + str(getattr(p, 'stderr', '') or ''), encoding='utf-8')
     if p.returncode != 0 or not destination.exists():
         raise SIDockError('PLIP_FAILED','Open Babel format conversion failed',{'command':['obabel',str(source),'-O',str(destination)]})
     return destination
@@ -68,6 +70,8 @@ def materialize_plip_complex(source: Path, destination: Path, *, runner=subproce
     receptor_out=[]; max_serial=0
     for line in receptor_pdb.read_text(encoding='utf-8',errors='replace').splitlines():
         if line.startswith(('ATOM  ','HETATM')):
+            if (line[17:20].strip(), line[21:22].strip(), line[22:26].strip()) == ('LIG', 'Z', '999'):
+                raise SIDockError('PLIP_FAILED', 'Receptor already uses reserved docked-ligand identity LIG:Z:999', {})
             receptor_out.append(line.rstrip())
             try: max_serial=max(max_serial,int(line[6:11]))
             except (ValueError,IndexError): pass
@@ -113,6 +117,8 @@ def materialize_plip_complex(source: Path, destination: Path, *, runner=subproce
 def prepare_protonated_complex(complex_pdb: Path, destination: Path, *, runner=subprocess.run) -> Path:
     destination.parent.mkdir(parents=True,exist_ok=True)
     p=runner(['obabel',str(complex_pdb),'-O',str(destination),'-h'],capture_output=True,text=True)
+    destination.with_suffix('.protonation.log').write_text(
+        str(getattr(p, 'stdout', '') or '') + str(getattr(p, 'stderr', '') or ''), encoding='utf-8')
     if p.returncode != 0 or not destination.exists(): raise SIDockError('PLIP_FAILED','Open Babel protonation failed',{'command':['obabel',str(complex_pdb),'-O',str(destination),'-h']})
     return destination
 
@@ -123,7 +129,9 @@ def run_plip(protonated: Path, output_dir: Path, *, runner=subprocess.run) -> li
         raise SIDockError('PLIP_FAILED',resolved['message'],{})
     command=[resolved['path'],'-f',str(protonated),'--nohydro','-o',str(output_dir),'-x','-q']
     p=runner(command,capture_output=True,text=True)
-    reports=list(output_dir.rglob('*_report.xml'))
+    (output_dir / 'plip.log').write_text(
+        str(getattr(p, 'stdout', '') or '') + str(getattr(p, 'stderr', '') or ''), encoding='utf-8')
+    reports=sorted(set(output_dir.rglob('*_report.xml')) | set(output_dir.rglob('report.xml')))
     if p.returncode != 0 or not reports: raise SIDockError('PLIP_FAILED','PLIP failed or produced no XML report',{'command':command})
     return reports
 
@@ -160,26 +168,37 @@ def _interaction_atom_indices(item, kind):
     return '', ''
 
 
-def normalize_plip_interactions(reports: list[Path], destination: Path, *, compound_id='', pose_id='') -> Path:
+def normalize_plip_interactions(reports: list[Path], destination: Path, *, compound_id='', pose_id='', ligand_identity=None) -> Path:
     rows=[]
     type_map={'hydrogen_bonds':'hydrogen_bond','hydrophobic_interactions':'hydrophobic','pistacking':'pi-stack','pi_cation_interactions':'pi-cation','salt_bridges':'salt_bridge','halogen_bonds':'halogen_bond'}
+    matched_site = False
     for report in reports:
         root=ET.parse(report).getroot()
+        if ligand_identity is not None:
+            sites = [site for site in root.findall('.//bindingsite')
+                     if site.find('identifiers') is not None
+                     if tuple(_text(site.find('identifiers'), key) for key in ('hetid', 'chain', 'position')) == tuple(ligand_identity)]
+            matched_site = matched_site or bool(sites)
+        else:
+            sites = [root]
         for section, interaction_type in type_map.items():
-            for parent in root.findall(f'.//{section}'):
+            for parent in (parent for site in sites for parent in site.findall(f'.//{section}')):
                 for item in list(parent):
                     chain=_text(item,'reschain'); resname=_text(item,'restype'); resnum=_text(item,'resnr')
                     protein_idx, ligand_idx = _interaction_atom_indices(item, interaction_type)
                     rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':protein_idx,'ligand_atom':ligand_idx,'distance_A':_interaction_distance(item, interaction_type),'angle_deg':_first_text(item,'don_angle','angle'),'PLIP_source':'PLIP'})
+    if ligand_identity is not None and not matched_site:
+        raise SIDockError('PLIP_FAILED', 'PLIP did not identify the docked LIG:Z:999 residue; contacts are unavailable.', {})
     destination.parent.mkdir(parents=True,exist_ok=True)
     with destination.open('w',newline='',encoding='utf-8') as fh:
         w=csv.DictWriter(fh,fieldnames=SCHEMA); w.writeheader(); w.writerows(rows)
     return destination
 
-def run_plip_analysis(complex_pdb: Path, work_dir: Path, normalized_csv: Path, *, compound_id='', pose_id='', provenance_path=None, runner=subprocess.run) -> PlipStageOutput:
+def run_plip_analysis(complex_pdb: Path, work_dir: Path, normalized_csv: Path, *, compound_id='', pose_id='', provenance_path=None, runner=subprocess.run, ligand_identity=None) -> PlipStageOutput:
     work_dir.mkdir(parents=True,exist_ok=True)
     plip_input=materialize_plip_complex(complex_pdb,work_dir/'plip_input_complex.pdb',runner=runner)
     protonated=work_dir/f'{plip_input.stem}_protonated.pdb'; protonated=prepare_protonated_complex(plip_input,protonated,runner=runner)
     reports=run_plip(protonated,work_dir/'plip',runner=runner)
-    normalize_plip_interactions(reports,normalized_csv,compound_id=compound_id,pose_id=pose_id)
+    normalize_plip_interactions(reports,normalized_csv,compound_id=compound_id,pose_id=pose_id,
+                               ligand_identity=ligand_identity)
     return PlipStageOutput(protonated,reports,normalized_csv,provenance_path,[])

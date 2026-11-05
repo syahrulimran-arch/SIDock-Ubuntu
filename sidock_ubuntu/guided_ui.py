@@ -30,7 +30,7 @@ def flow_nav(project: Path, selected: int) -> str:
         2: "2. Protein & binding site",
         3: "3. Compounds",
         4: "4. Docking setup",
-        5: "5. Docking run",
+        5: "5. Docking & analysis",
     }
     elements = []
     for index, label in labels.items():
@@ -52,12 +52,13 @@ def flow_nav(project: Path, selected: int) -> str:
     return "<div style='margin:1rem 0 1.5rem'>" + "".join(elements) + "</div>"
 
 
-def action(project: Path, task: str, label: str, *, disabled=False) -> str:
+def action(project: Path, task: str, label: str, *, disabled=False, run_id=None) -> str:
     return (
         f"<form style='display:inline-block;margin:.5rem 1rem .5rem 0' "
         f"action='/projects/{e(project.name)}/guided/action' method='post'>"
         f"<input type='hidden' name='action' value='{e(task)}'>"
-        f"<button type='submit' {'disabled' if disabled else ''}>{e(label)}</button></form>"
+        + (f"<input type='hidden' name='run_id' value='{e(run_id)}'>" if run_id else "")
+        + f"<button type='submit' {'disabled' if disabled else ''}>{e(label)}</button></form>"
     )
 
 
@@ -571,13 +572,16 @@ def step4(project: Path) -> str:
     return "".join(html_bits)
 
 
-def step5(project: Path) -> str:
+def step5(project: Path, *, selected_run=None) -> str:
     job = job_status(project)
-    run = active_run(project)
+    current_run = active_run(project)
+    from .guided_analysis import resolve_run, analysis_status
+    run = resolve_run(project, selected_run) if selected_run else current_run
     content = [
-        "<h2>Step 5 — Run docking</h2>",
+        "<h2>Step 5 — Docking and analysis</h2>",
         "<p>The run is unlocked only after Steps 2–4 have been approved for their "
-        "current files and settings. Existing completed compound logs are not rerun.</p>",
+        "current files and settings. Existing completed compound logs are not rerun. "
+        "After successful docking, pose/cluster analysis, PLIP, figures and the draft write-up start automatically.</p>",
     ]
     from .guided_workflow import approval_mode
     from .exploratory_approval import MODE
@@ -590,11 +594,18 @@ def step5(project: Path) -> str:
         )
     if not approved(project, 4):
         content.append("<p class='error'>Docking is locked until the previous steps are approved.</p>")
-    content.append(action(
-        project, "dock", "Start / resume AutoDock4 jobs",
-        disabled=not approved(project, 4) or job.get("status") == "RUNNING",
-    ))
+    if not selected_run or (current_run and current_run.name == selected_run):
+        content.append(action(
+            project, "dock", "Start / resume AutoDock4 jobs",
+            disabled=not approved(project, 4) or job.get("status") == "RUNNING",
+        ))
+    else:
+        content.append("<p><b>Viewing saved run:</b> " + e(run.name) +
+                       ". Its analysis uses the saved receptor and DLG files.</p>")
     content.append(job_view(project))
+    if job.get("status") == "RUNNING":
+        content.append("<p>The worker is running. This page refreshes automatically.</p>"
+                       "<script>setTimeout(function(){location.reload();}, 3500);</script>")
     if run:
         rel = run.relative_to(project).as_posix()
         result = run / "docking_result.json"
@@ -610,16 +621,51 @@ def step5(project: Path) -> str:
                 f"<p><a href='/projects/{e(project.name)}/artifacts/{e(rel)}/results.csv'>"
                 "Download docking results CSV</a></p>"
             )
+        from .manual_docking import complete_dlg_energy
+        completed = any(complete_dlg_energy(p) is not None for p in (run / "docking/dlg").glob("*.dlg"))
+        content.append("<h3>Analyse saved docking results</h3>"
+                       "<p>Run or retry post-processing of this run's completed DLG files. "
+                       "This reuses the prepared receptor/ligand files and does not generate grids or rerun docking.</p>")
+        content.append(action(project, "analyze", "Analyse existing results — no redocking",
+                              run_id=run.name, disabled=not completed or job.get("status") == "RUNNING"))
+        result = analysis_status(project, run)
+        if result:
+            content.append(f"<p><b>Analysis:</b> {e(result.get('status'))} | "
+                           f"Poses analysed: {e(result.get('analysed', 0))}/{e(result.get('total', 0))} | "
+                           f"PLIP complete: {e(result.get('plip_complete', 0))}</p>")
+            if result.get("status") == "STALE":
+                content.append("<p class='error'>" + e(result.get("stale_reason")) +
+                               ". Rerun analysis before using the report.</p>")
+            elif result.get("analysis_directory"):
+                folder = result["analysis_directory"]
+                for name, label in (("scientific_report.html", "View analysis, figures and draft write-up"),
+                                    ("scientific_report.md", "Download editable write-up"),
+                                    ("results.csv", "Download scores, clusters and interactions"),
+                                    ("evidence.json", "Download evidence JSON")):
+                    content.append(f"<p><a href='/projects/{e(project.name)}/artifacts/{e(folder)}/{name}'>"
+                                   + label + "</a></p>")
+                content.append(f"<p><a href='/projects/{e(project.name)}/artifacts/{e(result['bundle'])}'>"
+                               "Download all analysis files (ZIP)</a></p>")
+            if result.get("warnings"):
+                content.append("<details><summary>Analysis warnings and missing outputs</summary><ul>" +
+                               "".join("<li>" + e(w) + "</li>" for w in result["warnings"]) + "</ul></details>")
+    previous_runs = sorted((p for p in (manual_root(project) / "runs").glob("*")
+                            if p.is_dir() and (p / "protocol.json").is_file() and p != run),
+                           key=lambda p: p.stat().st_mtime, reverse=True)
+    if previous_runs:
+        content.append("<details><summary>Other saved runs</summary>" + "".join(
+            f"<p><a href='/projects/{e(project.name)}/guided/5?analysis_run={e(p.name)}'>"
+            f"View or analyse run {e(p.name)}</a></p>" for p in previous_runs) + "</details>")
     return "".join(content)
 
 
-def render(project: Path, step: int) -> str:
+def render(project: Path, step: int, *, analysis_run=None) -> str:
     if step not in (1,2,3,4,5):
         raise ValueError("Invalid guided step")
     views = {1: step1, 2: step2, 3: step3, 4: step4, 5: step5}
     content = (
         f"<h1>SIDock — Reviewed docking workflow</h1><p><b>Project:</b> {e(project.name)} "
         f"| <a href='/projects/{e(project.name)}'>Project overview</a></p>"
-        + flow_nav(project, step) + views[step](project)
+        + flow_nav(project, step) + (step5(project, selected_run=analysis_run) if step == 5 else views[step](project))
     )
     return content + f"<hr><p><a href='/projects/{e(project.name)}/guided/{min(step+1,5)}'>Next step</a></p>"

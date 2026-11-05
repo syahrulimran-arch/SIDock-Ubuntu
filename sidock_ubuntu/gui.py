@@ -128,12 +128,15 @@ def create_app(workspace=None):
         return project
 
     @app.get('/projects/{project_id}/guided/{step}', response_class=HTMLResponse)
-    def guided_step(project_id: str, step: int):
+    def guided_step(project_id: str, step: int, analysis_run: str | None = None):
         from .guided_ui import render
         if step not in (1, 2, 3, 4, 5):
             raise HTTPException(status_code=404, detail='UNKNOWN_GUIDED_STEP')
         project = get_project(project_id)
-        return page(f'Step {step} - {project.name}', render(project, step))
+        try:
+            return page(f'Step {step} - {project.name}', render(project, step, analysis_run=analysis_run))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
     @app.post('/projects/{project_id}/guided/protein-upload')
     async def guided_protein_upload(project_id: str, protein: UploadFile=File(...)):
@@ -358,12 +361,12 @@ def create_app(workspace=None):
 
     @app.post('/projects/{project_id}/guided/action')
     def guided_run_action(project_id:str, action:str=Form(...),
-                          confirm_metal_free:str|None=Form(None)):
+                          confirm_metal_free:str|None=Form(None), run_id:str|None=Form(None)):
         from .guided_workflow import approved, compound_profile, ready_to_dock, import_existing_compounds, _json
         from .manual_docking import launch, root as manual_root, job_status, settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
-        if action not in ('receptor','receptor_metal_free','receptor_ni_intermediate','receptor_openbabel','receptor_openbabel_pipeline','exploratory_smoke','prepare','reuse_compounds','grid','dock'):
+        if action not in ('receptor','receptor_metal_free','receptor_ni_intermediate','receptor_openbabel','receptor_openbabel_pipeline','exploratory_smoke','prepare','reuse_compounds','grid','dock','analyze'):
             raise HTTPException(status_code=400,detail='Unknown step action')
         try:
             if action in ('receptor', 'receptor_metal_free', 'receptor_ni_intermediate', 'receptor_openbabel', 'receptor_openbabel_pipeline', 'exploratory_smoke'):
@@ -398,13 +401,21 @@ def create_app(workspace=None):
                 if not approved(project,2) or not approved(project,3):
                     raise RuntimeError('Approve both protein and compound preparation first')
                 step=4
+            elif action == 'analyze':
+                from .guided_analysis import resolve_run
+                run_id = resolve_run(project, run_id).name
+                step=5
             else:
                 ready_to_dock(project)
                 step=5
-            launch(project,action)
+            if action == 'analyze':
+                launch(project, action, run_id=run_id)
+            else:
+                launch(project,action)
         except (RuntimeError,ValueError) as exc:
             raise HTTPException(status_code=409,detail=str(exc))
-        return RedirectResponse(f'/projects/{project_id}/guided/{step}',status_code=303)
+        suffix = f'?analysis_run={run_id}' if action == 'analyze' else ''
+        return RedirectResponse(f'/projects/{project_id}/guided/{step}{suffix}',status_code=303)
 
     @app.get('/projects/{project_id}')
     def detail(project_id):

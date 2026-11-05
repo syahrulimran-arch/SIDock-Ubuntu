@@ -70,9 +70,9 @@ def _residue(row):
     return f"{name}{number}" + (f" chain {chain}" if chain else "") if name and number else None
 
 
-def _activity(project):
+def _activity(project, analysis_dir=None):
     values = {}
-    for row in _csv(project / "analysis/assay.csv"):
+    for row in _csv((analysis_dir or project / "analysis") / "assay.csv"):
         cid = (row.get("ligand") or "").strip()
         value = _num(row.get("ic50_uM"))
         if cid and value is not None and value > 0:
@@ -80,23 +80,27 @@ def _activity(project):
     return values
 
 
-def _plip_rows(project, cid):
+def _plip_rows(project, cid, analysis_dir=None):
     """Recover detailed distances from already-saved PLIP XML, without re-running PLIP.
 
     Never replace the original normalized file. Only use the XML reparse when
     its residue/type inventory matches that of the recorded PLIP CSV.
     """
-    original_path = project / "analysis" / f"interactions_plip_{cid}.csv"
+    analysis_dir = analysis_dir or project / "analysis"
+    original_path = analysis_dir / f"interactions_plip_{cid}.csv"
     original = _csv(original_path)
-    report_dir = project / "analysis" / f"plip_{cid}" / "plip"
-    xml_files = sorted(report_dir.rglob("*_report.xml")) if report_dir.is_dir() else []
+    report_dir = analysis_dir / f"plip_{cid}" / "plip"
+    xml_files = sorted(set(report_dir.rglob("*_report.xml")) | set(report_dir.rglob("report.xml"))) if report_dir.is_dir() else []
     if not xml_files:
         return original, None
     try:
         from .plip_runner import normalize_plip_interactions
-        detail_path = project / "analysis" / f"interactions_detailed_{cid}.csv"
+        detail_path = analysis_dir / f"interactions_detailed_{cid}.csv"
         pose_id = original[0].get("pose_id", "") if original else ""
-        normalize_plip_interactions(xml_files, detail_path, compound_id=cid, pose_id=pose_id)
+        provenance = _json(analysis_dir / f"plip_{cid}" / "provenance.json")
+        selected = provenance.get("ligand_identity")
+        normalize_plip_interactions(xml_files, detail_path, compound_id=cid, pose_id=pose_id,
+                                    ligand_identity=tuple(selected) if selected else None)
         recovered = _csv(detail_path)
         fields = ("interaction_type", "protein_chain", "protein_residue_name", "protein_residue_number")
         def signature(rows):
@@ -108,20 +112,21 @@ def _plip_rows(project, cid):
         return original, f"PLIP_XML_RECONSTRUCTION_FAILED: {exc}"
 
 
-def build_summary(project):
+def build_summary(project, *, analysis_dir=None):
     project = Path(project).resolve()
-    evidence_path = project / "analysis/evidence.json"
+    analysis_dir = Path(analysis_dir) if analysis_dir is not None else project / "analysis"
+    evidence_path = analysis_dir / "evidence.json"
     if not evidence_path.is_file():
         raise FileNotFoundError(f"Finalized SIDock evidence missing: {evidence_path}")
     evidence = _json(evidence_path)
-    activity = _activity(project)
+    activity = _activity(project, analysis_dir)
     compounds = []
     for item in evidence.get("compounds", []):
         cid = str(item.get("compound_id", "")).strip()
         if not cid:
             continue
-        plip_path = project / "analysis" / f"interactions_plip_{cid}.csv"
-        interactions, plip_warning = _plip_rows(project, cid)
+        plip_path = analysis_dir / f"interactions_plip_{cid}.csv"
+        interactions, plip_warning = _plip_rows(project, cid, analysis_dir)
         grouped = {}
         interaction_details = []
         for row in interactions:
@@ -141,9 +146,9 @@ def build_summary(project):
             residue = _residue(row)
             if kind and residue:
                 grouped.setdefault(kind, Counter())[residue] += 1
-        clusters = _csv(project / "analysis" / f"clusters_{cid}.csv")
+        clusters = _csv(analysis_dir / f"clusters_{cid}.csv")
         if not clusters:
-            clusters = [x for x in _csv(project / "analysis/clusters.csv") if x.get("ligand") == cid]
+            clusters = [x for x in _csv(analysis_dir / "clusters.csv") if x.get("ligand") == cid]
         populations = [_integer(x.get("cluster_size")) for x in clusters]
         populations = [x for x in populations if x is not None]
         largest = max(populations) if populations else _integer(item.get("largest_cluster_population"))
@@ -187,10 +192,16 @@ def build_summary(project):
             pass
     return {
         "schema_version": "0.6-scientific-report-1",
+        "run_id": evidence.get("run_id"),
         "evidence_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
         "project_status": evidence.get("project_status"),
         "target": evidence.get("target") or {},
         "validation": evidence.get("validation") or {},
+        "model_status": evidence.get("model_status"),
+        "scientific_approval": evidence.get("scientific_approval"),
+        "analysis_status": evidence.get("analysis_status"),
+        "warnings": evidence.get("warnings", []),
+        "figures": evidence.get("figures", []),
         "activity_correlation": stats,
         "ranked_ids": [r["compound_id"] for r in ranked],
         "compounds": compounds,
@@ -214,12 +225,15 @@ def draft_markdown(summary):
         "; minimum RMSD " + _fmt(validation.get("native_redocking_RMSD_A"), 3) + " Angstrom; threshold " +
         _fmt(validation.get("rmsd_threshold")) + " Angstrom.",
         "- Validation policy: " + str(validation.get("validation_policy") or "not recorded") + ".",
-        "- Project scientific status: " + str(summary["project_status"] or "not recorded") + ".", "",
+        "- Project analysis status: " + str(summary["project_status"] or "not recorded") + ".", "",
         "## Methods, from persisted inputs", "",
         "AutoDock4 predicted docking poses and energies; the lowest reported predicted docking energy per compound is tabulated. "
         "The genetic-algorithm settings below were read from a production DPF, and residue contacts from PLIP CSVs. "
         "The original input, DPF, DLG and PLIP files remain the scientific primary record.", "",
     ]
+    if summary.get("scientific_approval") is False:
+        lines[4:4] = ["Model: " + str(summary.get("model_status") or "UNVALIDATED_DOCKING") +
+                      ". SCIENTIFIC APPROVAL: FALSE. No native-redocking validation is established by this analysis.", ""]
     for label, key in [("GA runs per compound", "ga_run"), ("GA population", "ga_pop_size"),
                        ("Maximum evaluations", "ga_num_evals"), ("Maximum generations", "ga_num_generations"),
                        ("Clustering RMSD tolerance", "rmstol"), ("Seeds", "seed")]:
@@ -258,7 +272,7 @@ def draft_markdown(summary):
         if not row["plip_available"]:
             lines.append("PLIP CSV absent; interactions cannot be assigned from the summary alone.")
         elif not row["residues_by_interaction"]:
-            lines.append("No protein residue identities were present in the recorded PLIP CSV.")
+            lines.append("PLIP recorded no residue contacts for the selected ligand.")
         else:
             for kind, entries in row["residues_by_interaction"].items():
                 lines.append("- " + kind + ": " + ", ".join(x["residue"] + f" ({x['count']})" for x in entries) + ".")
@@ -304,12 +318,20 @@ def draft_markdown(summary):
                   "PLIP atom-level contacts/distances, and robustness to repeated seeds or receptor conformations.",
                   "Docking scores must not be converted directly into IC50 values.", "",
                   "## Audit sources", "",
-                  "- analysis/evidence.json",
-                  "- docking/dpf and docking/dlg: AutoDock settings and immutable original docking outputs",
-                  "- analysis/clusters_<compound>.csv: clusters",
-                  "- analysis/interactions_plip_<compound>.csv: residue-level contacts",
-                  "- analysis/assay.csv: experimental values, when present",
+                  "- evidence.json beside this report: structured evidence and recorded input hashes",
+                  "- Saved run docking/dpf and docking/dlg: AutoDock settings and original docking outputs",
+                  "- clusters_<compound>.csv beside this report: clusters",
+                  "- interactions_plip_<compound>.csv beside this report: residue-level contacts",
+                  "- assay.csv beside this report: experimental values, when present",
                   "", "SHA256(evidence.json): " + summary["evidence_sha256"], ""])
+    if summary.get("run_id"):
+        lines.extend(["The guided analysis ZIP includes source protocol, receptor, DPF and DLG copies under sources/.", ""])
+    if summary.get("warnings"):
+        lines.extend(["## Analysis warnings", "", *["- " + str(w) for w in summary["warnings"]], ""])
+    if summary.get("figures"):
+        lines.extend(["## Figures", ""])
+        for figure in summary["figures"]:
+            lines.extend(["![" + str(figure["caption"]) + "](" + str(figure["path"]) + ")", ""])
     return "\n".join(lines)
 
 
@@ -342,6 +364,11 @@ def _html(markdown):
             parts.append("<h2>" + html.escape(s[3:]) + "</h2>")
         elif s.startswith("# "):
             parts.append("<h1>" + html.escape(s[2:]) + "</h1>")
+        elif (match := re.fullmatch(r"!\[(.*)\]\((figures/[A-Za-z0-9_.-]+\.png)\)", s)):
+            caption, src = match.groups()
+            parts.append("<figure><img style='max-width:100%' src='" + html.escape(src, quote=True) +
+                         "' alt='" + html.escape(caption, quote=True) + "'><figcaption>" +
+                         html.escape(caption) + "</figcaption></figure>")
         else:
             parts.append("<p>" + html.escape(s) + "</p>")
     if table:
@@ -349,11 +376,11 @@ def _html(markdown):
     return "\n".join(parts + ["</body></html>"])
 
 
-def write_scientific_report(project):
+def write_scientific_report(project, *, analysis_dir=None):
     project = Path(project).resolve()
-    summary = build_summary(project)
+    summary = build_summary(project, analysis_dir=analysis_dir)
     markdown = draft_markdown(summary)
-    out = project / "analysis"
+    out = Path(analysis_dir) if analysis_dir is not None else project / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     data = {"scientific_report.md": markdown, "scientific_report.html": _html(markdown),
             "scientific_report.json": json.dumps(summary, indent=2, sort_keys=True)}

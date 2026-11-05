@@ -4,6 +4,11 @@ SIDock Ubuntu is an automated AutoDock4 molecular-docking workflow for Ubuntu. I
 
 Receptor and ligand PDBQT preparation uses Open Babel (`obabel`). Meeko is no longer used or required.
 
+The guided workflow now runs post-docking pose/cluster analysis, PLIP, figures
+and an evidence-bound draft write-up. Step 5 also analyses existing saved runs
+without redocking. See [guided analysis](docs/GUIDED_ANALYSIS.md) for outputs,
+dependency recovery and the unvalidated-model status.
+
 ## Quick start
 
 ```bash
