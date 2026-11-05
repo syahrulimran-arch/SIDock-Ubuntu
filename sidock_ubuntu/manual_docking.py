@@ -524,7 +524,7 @@ def job_status(project: Path) -> dict:
 
 
 def launch(project: Path, action: str) -> dict:
-    if action not in {"prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "grid", "dock"}:
+    if action not in {"prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "grid", "dock"}:
         raise ValueError("Unsupported manual action")
     with _job_file_lock(project):
         if job_status(project).get("status") == "RUNNING":
@@ -550,9 +550,11 @@ def execute(project: Path, action: str) -> dict:
     try:
         from .guided_workflow import prepare_protein
         from .nickel_reconstruction import prepare_intermediate
+        from .openbabel_receptor import generate_candidate
         results = {"prepare": prepare, "receptor": prepare_protein,
                    "receptor_metal_free": lambda p: prepare_protein(p, exploratory_metal_free=True),
                    "receptor_ni_intermediate": prepare_intermediate,
+                   "receptor_openbabel": generate_candidate,
                    "grid": grid, "dock": dock}[action](project)
         with _job_file_lock(project):
             job = _read_json(path)
@@ -573,7 +575,7 @@ def execute(project: Path, action: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Explicit manual AutoDock4 runner")
     parser.add_argument("project", type=Path)
-    parser.add_argument("action", choices=("prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "grid", "dock", "status"))
+    parser.add_argument("action", choices=("prepare", "receptor", "receptor_metal_free", "receptor_ni_intermediate", "receptor_openbabel", "grid", "dock", "status"))
     args = parser.parse_args()
     if args.action == "status":
         print(json.dumps({"settings": settings(args.project),
