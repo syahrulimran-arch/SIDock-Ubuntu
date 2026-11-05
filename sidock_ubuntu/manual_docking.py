@@ -227,8 +227,24 @@ def prepare(project: Path) -> dict:
     expected_names = set(expected)
     manifest_path = out / "ligands" / "manifest.json"
     manifest = _read_json(manifest_path)
+    identity_path = out / "ligands" / "preparation_identity.json"
+    prior_identity = _read_json(identity_path)
     old = prepared_ligands(project)
     present = {p.name for p in old}
+    minimized_dir = out / "ligands" / "source"
+    old_minimized = list(minimized_dir.glob("*.sdf"))
+    saved_hash = prior_identity.get("source_sha256")
+    if saved_hash is not None and saved_hash != fingerprint:
+        raise RuntimeError(
+            "The source SDF changed since the previous preparation attempt. "
+            "Existing minimized and PDBQT files were preserved."
+        )
+    if (saved_hash is None and (old or old_minimized)
+            and manifest.get("source_sha256") != fingerprint):
+        raise RuntimeError(
+            "Existing partial ligand outputs have no matching source-SDF provenance. "
+            "Nothing was overwritten; review the files before resuming."
+        )
     if old and not present.issubset(expected_names):
         raise RuntimeError(
             "Unexpected existing prepared ligands were found. Preserved all files; "
@@ -249,7 +265,14 @@ def prepare(project: Path) -> dict:
             and set(manifest.get("compounds", [])) == expected_names):
         return {"status": "REUSED", "prepared": len(expected),
                 "ligands": sorted(expected_names)}
-    sources = split_and_minimize_sdf(sdf, out / "ligands" / "source")
+    if saved_hash is None:
+        _save_json(identity_path, {
+            "source_sha256": fingerprint,
+            "expected_compounds": sorted(expected_names),
+        })
+    sources = split_and_minimize_sdf(
+        sdf, out / "ligands" / "source", reuse_existing=True
+    )
     actual_names = {p.stem + ".pdbqt" for p in sources}
     if actual_names != expected_names or len(sources) != len(expected):
         missing = expected_names - actual_names
