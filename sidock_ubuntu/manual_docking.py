@@ -130,8 +130,8 @@ def _input_metals(project: Path) -> int:
                if line.startswith("HETATM") and line[17:20].strip() in {"NI"})
 
 
-def _pdbqt_metals(project: Path) -> int:
-    path = root(project) / "receptor.pdbqt"
+def _pdbqt_metals(project: Path, receptor: Path | None = None) -> int:
+    path = receptor if receptor is not None else root(project) / "receptor.pdbqt"
     if not path.exists():
         return 0
     return sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -304,11 +304,26 @@ def prepare(project: Path) -> dict:
     return {"status": "PREPARED", "prepared": len(prepared), "ligands": sorted(prepared)}
 
 
+def selected_receptor_for_run(project: Path) -> tuple[Path, str]:
+    """Use hash-approved exploratory candidate, or leave standard receptor intact."""
+    from .guided_workflow import load_workflow, approved
+    from .exploratory_approval import MODE
+    entry = load_workflow(project).get("approvals", {}).get("2", {})
+    if entry.get("mode") == MODE:
+        if not approved(project, 2):
+            raise RuntimeError(
+                "Exploratory receptor approval expired: source, model, parameters "
+                "or smoke-test audit changed. Review and approve Step 2 again."
+            )
+        return root(project) / "inputs/receptor_openbabel_exploratory.pdbqt", MODE
+    return root(project) / "receptor.pdbqt", "MANUAL_AUTODOCK4"
+
+
 def _run_identity(project: Path) -> tuple[str, list[Path]]:
     project = Path(project).resolve()
-    receptor = root(project) / "receptor.pdbqt"
+    receptor, mode = selected_receptor_for_run(project)
     if not receptor.is_file():
-        raise RuntimeError("Import a prepared receptor PDBQT first")
+        raise RuntimeError("Import or technically approve a prepared receptor PDBQT first")
     ligands = prepared_ligands(project)
     if not ligands:
         raise RuntimeError("Prepare the SDF ligands first")
@@ -318,7 +333,7 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
     if m.get("source_sha256") != _sha(_ligand_sdf(project)):
         raise RuntimeError("SDF has changed since ligand preparation")
     current = settings(project)
-    if _input_metals(project) and not _pdbqt_metals(project) and not current["allow_missing_metal"]:
+    if _input_metals(project) and not _pdbqt_metals(project, receptor) and not current["allow_missing_metal"]:
         raise RuntimeError(
             "The original structure contains catalytic nickel but this receptor PDBQT does not. "
             "Import a metal-parameterized receptor, or explicitly enable exploratory metal-free docking."
@@ -346,6 +361,10 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
                 + ", ".join(sorted(missing_types))
             )
     metal_review = _read_json(root(project) / "inputs/receptor_review.json")
+    if mode != "MANUAL_AUTODOCK4":
+        # Technical exploratory mode is independently audited by Step 2.
+        # The Ni reconstruction audit belongs only to the scientific receptor.
+        metal_review = {}
     if metal_review.get("metal_model"):
         audit_path = root(project) / "inputs/Ni_reconstruction_audit.json"
         audit = _read_json(audit_path)
@@ -359,6 +378,10 @@ def _run_identity(project: Path) -> tuple[str, list[Path]]:
             )
     values["custom_parameters_sha256"] = _sha(custom) if custom is not None else None
     values["receptor_sha256"] = _sha(receptor)
+    values["receptor_mode"] = mode
+    if mode != "MANUAL_AUTODOCK4":
+        from .guided_workflow import load_workflow
+        values["exploratory_step2_digest"] = load_workflow(project)["approvals"]["2"]["digest"]
     values["ligands"] = {x.name: _sha(x) for x in ligands}
     token = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:16]
     return token, ligands
@@ -375,13 +398,19 @@ def active_run(project: Path) -> Path | None:
 def grid(project: Path) -> dict:
     project = Path(project).resolve()
     token, ligands = _run_identity(project)
+    _, model_status = selected_receptor_for_run(project)
+    if model_status != "MANUAL_AUTODOCK4":
+        from .guided_workflow import approved
+        if not approved(project, 2) or not approved(project, 3):
+            raise RuntimeError("Current exploratory Step 2 and Step 3 approvals required.")
     run = root(project) / "runs" / token
     grid_path = run / "grid" / "production" / "grid_provenance.json"
     if grid_path.is_file():
         return {"run_id": token, "status": "REUSED", "grid": str(grid_path)}
     target = run / "receptor" / "receptor.pdbqt"
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(root(project) / "receptor.pdbqt", target)
+    active_receptor, model_status = selected_receptor_for_run(project)
+    shutil.copy2(active_receptor, target)
     t = settings(project)
     box = GridBox(t["center_x"], t["center_y"], t["center_z"],
                   t["npts_x"], t["npts_y"], t["npts_z"], t["spacing"])
@@ -396,10 +425,12 @@ def grid(project: Path) -> dict:
         raise RuntimeError(f"AutoGrid failed: {exc}. Last AutoGrid output: {details}") from exc
     _save_json(run / "protocol.json", {
         "run_id": token, "settings": t,
-        "receptor_sha256": _sha(root(project) / "receptor.pdbqt"),
+        "receptor_sha256": _sha(active_receptor),
+        "model_status": model_status,
+        "scientific_approval": model_status != "EXPLORATORY_UNVALIDATED_NI_MODEL",
         "ligand_sha256": {x.name: _sha(x) for x in ligands},
         "metal_atoms_original": _input_metals(project),
-        "metal_atoms_prepared": _pdbqt_metals(project),
+        "metal_atoms_prepared": _pdbqt_metals(project, active_receptor),
         "nickel_reconstruction_audit_sha256": _sha(root(project) / "inputs/Ni_reconstruction_audit.json")
               if (root(project) / "inputs/Ni_reconstruction_audit.json").is_file()
               and _read_json(root(project) / "inputs/receptor_review.json").get("metal_model")
@@ -407,7 +438,8 @@ def grid(project: Path) -> dict:
         "metal_model_validation": "NOT_PERFORMED",
         "validation": "NOT_PERFORMED",
         "custom_parameter_sha256": _sha(parameter_file_path(project)) if parameter_file_path(project) else None,
-        "method": "MANUAL_AUTODOCK4",
+        "method": "AUTODOCK4_TECHNICAL_EXPLORATORY" if model_status != "MANUAL_AUTODOCK4"
+                  else "MANUAL_AUTODOCK4",
     })
     return {"run_id": token, "status": "CREATED", "grid": str(result["gpf"])}
 
@@ -426,6 +458,11 @@ def complete_dlg_energy(path: Path) -> float | None:
 def dock(project: Path) -> dict:
     project = Path(project).resolve()
     token, ligands = _run_identity(project)
+    _, model_status = selected_receptor_for_run(project)
+    if model_status != "MANUAL_AUTODOCK4":
+        from .guided_workflow import approved
+        if not approved(project, 2) or not approved(project, 3):
+            raise RuntimeError("Current exploratory Step 2 and Step 3 approvals required.")
     run = root(project) / "runs" / token
     prov = run / "grid" / "production" / "grid_provenance.json"
     if not prov.is_file():
@@ -481,7 +518,10 @@ def dock(project: Path) -> dict:
             writer.writerow((ligand.stem, energy if energy is not None else "",
                              "COMPLETE" if energy is not None else "FAILED",
                              str(dlg_file) if dlg_file.exists() else ""))
-    result = {"run_id": token, "total": len(ligands),
+    _, model_status = selected_receptor_for_run(project)
+    result = {"run_id": token, "model_status": model_status,
+              "scientific_approval": model_status != "EXPLORATORY_UNVALIDATED_NI_MODEL",
+              "total": len(ligands),
               "already_finished": len(ligands) - len(pending),
               "launched": len(pending),
               "completed": sum(energy is not None for energy in energies.values()),
