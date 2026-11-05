@@ -344,6 +344,18 @@ def create_app(workspace=None):
             raise HTTPException(status_code=409,detail=str(exc))
         return RedirectResponse(f'/projects/{project_id}/guided/{min(step+1,5)}',status_code=303)
 
+    @app.post('/projects/{project_id}/guided/approve-exploratory')
+    def guided_approve_exploratory(project_id: str,
+                                   acknowledgement: str = Form(...)):
+        from .guided_workflow import approve_exploratory
+        from fastapi.responses import RedirectResponse
+        project = get_project(project_id)
+        try:
+            approve_exploratory(project, acknowledgement=acknowledgement)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return RedirectResponse(f'/projects/{project_id}/guided/3', status_code=303)
+
     @app.post('/projects/{project_id}/guided/action')
     def guided_run_action(project_id:str, action:str=Form(...),
                           confirm_metal_free:str|None=Form(None)):
