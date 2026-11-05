@@ -460,9 +460,8 @@ def dock(project: Path) -> dict:
     token, ligands = _run_identity(project)
     _, model_status = selected_receptor_for_run(project)
     if model_status != "MANUAL_AUTODOCK4":
-        from .guided_workflow import approved
-        if not approved(project, 2) or not approved(project, 3):
-            raise RuntimeError("Current exploratory Step 2 and Step 3 approvals required.")
+        from .guided_workflow import ready_to_dock
+        ready_to_dock(project)  # Includes fresh hash-bound Step 4 grid approval.
     run = root(project) / "runs" / token
     prov = run / "grid" / "production" / "grid_provenance.json"
     if not prov.is_file():
