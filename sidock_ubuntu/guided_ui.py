@@ -222,6 +222,39 @@ def step2(project: Path) -> str:
                 "The grid may not cover the biologically relevant site. Verify the "
                 "reference against experimental ligand/site evidence.</p>"
             )
+        # Meeko-free receptor export: available for ANY reviewed protein.
+        # The file is an inspectable rigid candidate, not a metal-site approval.
+        ob_candidate = manual_root(project) / "inputs/receptor_openbabel_candidate.pdbqt"
+        ob_audit = _json(manual_root(project) / "inputs/receptor_openbabel_audit.json")
+        content.append(
+            "<h3>Generate receptor PDBQT without Meeko</h3>"
+            "<p>Use Open Babel to convert the reviewed PDB directly to a "
+            "<b>rigid receptor PDBQT</b>. It does not require Meeko templates "
+            "for modified residues. This creates an inspectable file without "
+            "approving metal parameters, protonation or previously unresolved atoms.</p>"
+            + action(project, "receptor_openbabel",
+                     "Generate rigid receptor PDBQT with Open Babel",
+                     disabled=job.get("status") == "RUNNING")
+        )
+        if ob_candidate.is_file():
+            content.append(
+                f"<p><b>Open Babel PDBQT generated:</b> "
+                f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/receptor_openbabel_candidate.pdbqt'>"
+                "Open/download receptor PDBQT</a>"
+                + (f" | <a href='/projects/{e(project.name)}/artifacts/manual_docking/inputs/receptor_openbabel_audit.json'>"
+                   "Review export audit</a>" if ob_audit else "")
+                + "</p>"
+                + (f"<p><b>Atom retention:</b> "
+                   f"{e(ob_audit.get('input_heavy_atom_count', 'unknown'))} original heavy atoms; "
+                   f"{e(len(ob_audit.get('missing_input_heavy_atoms', [])))} unmatched on export. "
+                   f"<b>Metal chemistry:</b> {e(ob_audit.get('metal_parameterization', 'NOT_VALIDATED'))}.</p>"
+                   if ob_audit else
+                   "<p>Output exists but its provenance audit is absent; review before use.</p>")
+            )
+        content.append(
+            "<p><small>Step 2 approval remains separate. A PDBQT file alone "
+            "does not validate protein charge, protonation or coordination chemistry.</small></p>"
+        )
         content.append(
             "<h3>Prepare receptor PDBQT</h3>"
             "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
