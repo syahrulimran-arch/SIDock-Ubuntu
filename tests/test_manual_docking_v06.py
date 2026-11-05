@@ -28,7 +28,13 @@ def setup_project(tmp_path):
         + atom(4, "NI", "C", 799, 31.000, 73.000, 74.000, "NI")
     )
     sdf = p / "input/compounds.sdf"
-    sdf.write_text("synthetic-fixture-only\n", encoding="utf-8")
+    from rdkit import Chem
+    mol = Chem.MolFromSmiles("CCO")
+    mol.SetProp("_Name", "L1")
+    mol.SetProp("Compound_ID", "L1")
+    writer = Chem.SDWriter(str(sdf))
+    writer.write(mol)
+    writer.close()
     (p / "project.json").write_text(json.dumps({
         "receptor_source": str(pdb), "ligand_source": str(sdf),
     }))
