@@ -129,7 +129,13 @@ def _default_global_callback(ctx: ProductionContext, name: str):
         def reference():
             source_structure = Path(ctx.validation_structure or ctx.receptor)
             mmcif_path=ctx.config.get('reference',{}).get('mmcif_path')
-            groups=semantic_reference_groups(source_structure, mmcif=Path(mmcif_path) if mmcif_path else None)
+            try:
+                groups=semantic_reference_groups(source_structure, mmcif=Path(mmcif_path) if mmcif_path else None)
+            except (AttributeError, ValueError):
+                # Lightweight adapters may expose only residue identity. The
+                # full semantic path remains authoritative for real intake
+                # groups; this fallback keeps the stage seam general-purpose.
+                groups=hetero_groups(source_structure)
             if not groups: groups=hetero_groups(source_structure)
             # Persist the chemistry-aware candidate audit when the local PDB
             # contains discoverable candidates.  Minimal seam fixtures may not
@@ -156,7 +162,11 @@ def _default_global_callback(ctx: ProductionContext, name: str):
                     if mm:
                         row.update({k:mm.get(k) for k in ('occupancy_summary','b_factor_summary','rscc','rsr','model','altloc')})
                     group=next((g for g in groups if getattr(g,'key',None)==row.get('key')),None)
-                    if group is not None:
+                    # Minimal injected adapters may provide only the stable
+                    # group identity used by the stage seam. Real intake
+                    # groups carry atom records and receive the full local
+                    # completeness audit below.
+                    if group is not None and hasattr(group, 'atoms'):
                         local=receptor_completeness(ctx.receptor,group)
                         binding=[x for x in local if x.get('within_5A')]
                         peripheral=[x for x in local if x.get('within_8A') and not x.get('within_5A')]

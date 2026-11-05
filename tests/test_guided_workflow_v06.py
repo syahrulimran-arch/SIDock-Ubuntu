@@ -3,6 +3,7 @@
 No test below invokes AutoGrid4 or AutoDock4.
 """
 from pathlib import Path
+import re
 
 import pytest
 
@@ -269,6 +270,9 @@ def test_exploratory_metal_free_requires_ack_and_preserves_original(tmp_path, mo
     assert (folder/"logs/receptor_meeko_metal_free.log").is_file()
     assert (folder/"receptor.pdbqt").is_file()
     assert (folder/"inputs/metal_free_preparation_audit.json").is_file()
+    review = json.loads((folder/"inputs/receptor_review.json").read_text())
+    assert review["preparation_audit"]["method"] == "MEEKO_RECEPTOR_PREPARATION"
+    assert review["preparation_audit"]["log_sha256"]
     assert not (folder/"runs").exists()
     approve(p,2)
     assert approved(p,2)
@@ -384,3 +388,23 @@ def test_step2_nonmetal_protein_has_normal_meeko_path(tmp_path):
     assert "receptor_ni_intermediate" not in html
     assert "receptor_metal_free" not in html
     assert "Standard Meeko is disabled" not in html
+
+def test_step2_approval_button_is_disabled_until_final_receptor_exists(tmp_path):
+    from sidock_ubuntu.guided_ui import step2
+    project = new_project(tmp_path)
+    select_protein(project, ligand_key="HAE:C:800", remove_groups=[], remove_waters=True)
+    page = step2(project)
+    assert "Approval unavailable:" in page
+    assert "Run receptor preparation successfully or import a reviewed receptor PDBQT." in page
+    assert re.search(r"<button type='submit' disabled>Approve and continue</button>", page)
+
+
+def test_meeko_diagnostics_include_generic_corrective_options(tmp_path):
+    from sidock_ubuntu.receptor_diagnostics import analyze_meeko_log
+    result = analyze_meeko_log(
+        "No template matched for residue_key='C:326'\n"
+        "Template generation failed for unknown residues: {'NI'}\n"
+    )
+    assert result["template_mismatches"] == ["C:326"]
+    assert result["unknown_components"] == ["NI"]
+    assert len(result["corrective_options"]) >= 3

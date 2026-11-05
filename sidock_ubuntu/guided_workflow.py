@@ -21,6 +21,7 @@ from .intake import (
 from .manual_docking import (
     root as manual_root, settings, save_settings, install_receptor,
     prepared_ligands, _run_identity, active_run, _read_json, _save_json,
+    _input_metals, _pdbqt_metals,
 )
 from .model import Project
 from .state import STAGES
@@ -386,7 +387,22 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
             raise RuntimeError(
                 "Metal-free Meeko output unexpectedly contains nickel; refusing to install"
             )
-    install_reviewed_receptor(project, prepared)
+    from .receptor_diagnostics import read_receptor_diagnostics
+    preparation_audit = {
+        "method": "MEEKO_RECEPTOR_PREPARATION",
+        "source_pdb": str(src_for_meeko),
+        "source_pdb_sha256": _sha_file(src_for_meeko),
+        "prepared_pdbqt": str(prepared),
+        "prepared_pdbqt_sha256": _sha_file(prepared),
+        "log": str(log),
+        "log_sha256": _sha_file(log),
+        "exploratory_metal_free": bool(exploratory_metal_free),
+        "diagnostics": read_receptor_diagnostics(
+            project,
+            exploratory_metal_free=exploratory_metal_free,
+        ),
+    }
+    install_reviewed_receptor(project, prepared, audit=preparation_audit)
     result = {
         "prepared_receptor": str(prepared),
         "installed_receptor": str(manual_root(project) / "receptor.pdbqt"),
@@ -404,7 +420,7 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
     return result
 
 
-def install_reviewed_receptor(project: Path, source: Path) -> Path:
+def install_reviewed_receptor(project: Path, source: Path, *, audit: dict | None = None) -> Path:
     """Bind an imported/prepared PDBQT to the explicitly reviewed cleaned protein."""
     project = Path(project).resolve()
     choice = _json(manual_root(project) / "inputs/protein_choice.json")
@@ -412,14 +428,56 @@ def install_reviewed_receptor(project: Path, source: Path) -> Path:
     if not choice or choice.get("clean_sha256") != _sha_file(clean):
         raise RuntimeError("Save the current protein component selection before importing a receptor")
     dest = install_receptor(project, source)
-    _save_json(manual_root(project) / "inputs/receptor_review.json", {
+    review = {
         "clean_sha256": _sha_file(clean),
         "receptor_sha256": _sha_file(dest),
         "source_path": str(Path(source).resolve()),
         "at": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    if audit:
+        review["preparation_audit"] = audit
+    _save_json(manual_root(project) / "inputs/receptor_review.json", review)
     _event(project, "RECEPTOR_IMPORTED", {"sha256": _sha_file(dest)})
     return dest
+
+
+def receptor_approval_readiness(project: Path) -> dict:
+    """Return UI-safe readiness facts without changing workflow state."""
+    project = Path(project).resolve()
+    folder = manual_root(project)
+    choice = _json(folder / "inputs/protein_choice.json")
+    clean = folder / "inputs/protein_clean.pdb"
+    receptor = folder / "receptor.pdbqt"
+    review = _json(folder / "inputs/receptor_review.json")
+    reasons = []
+    if not choice:
+        reasons.append("Save the Step 2 protein and binding-site review first.")
+    if not receptor.is_file() or receptor.stat().st_size == 0:
+        reasons.append("Run receptor preparation successfully or import a reviewed receptor PDBQT.")
+    if choice and _sha_file(clean) != choice.get("clean_sha256"):
+        reasons.append("The reviewed cleaned PDB changed; save the protein review again.")
+    if receptor.is_file() and clean.is_file():
+        if review.get("clean_sha256") != _sha_file(clean):
+            reasons.append("The receptor is not audited against the current cleaned PDB.")
+        if review.get("receptor_sha256") != _sha_file(receptor):
+            reasons.append("The receptor audit does not match the current PDBQT.")
+    input_metals = _input_metals(project)
+    prepared_metals = _pdbqt_metals(project)
+    if input_metals and receptor.is_file() and prepared_metals < input_metals:
+        if not settings(project).get("allow_missing_metal"):
+            reasons.append(
+                f"The source contains {input_metals} catalytic nickel ion(s), but the receptor contains "
+                f"{prepared_metals}; complete metal treatment or explicitly label the model exploratory."
+            )
+    return {
+        "ready": not reasons,
+        "reasons": reasons,
+        "receptor": str(receptor),
+        "receptor_exists": receptor.is_file() and receptor.stat().st_size > 0,
+        "input_metals": input_metals,
+        "prepared_metals": prepared_metals,
+        "audit": review,
+    }
 
 
 def compound_profile(project: Path) -> dict:

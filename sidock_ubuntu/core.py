@@ -13,6 +13,7 @@ from .model import DockingParameters, GridBox
 from .dependencies import resolve_meeko_receptor_preparer, resolve_meeko_script
 
 SUPPORTED_AD4_TYPES = {'C','A','N','NA','OA','OS','HD','HS','S','SA','Cl','Br','I','F','P','Mg','Ca','Zn','Fe'}
+_BUNDLED_RESIDUE_TEMPLATES = Path(__file__).with_name("data") / "kcx_residue_template.json"
 
 def validate_ad4_types(types: list[str]) -> list[str]:
     ordered=sorted(set(types))
@@ -84,6 +85,28 @@ def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_b
         raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
     base = destination.with_suffix("")
     cmd = [exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"]
+    # KCX is a polymer residue in the RCSB CCD, but Meeko 0.8.0 tries to fetch
+    # its template online when it is absent from the installed template set.
+    # Supply the reviewed offline CCD-derived template without changing the
+    # input structure or deleting the modified lysine.
+    if _BUNDLED_RESIDUE_TEMPLATES.is_file():
+        text = source.read_text(encoding="utf-8", errors="replace")
+        if any(line.startswith(("ATOM", "HETATM")) and line[17:20].strip().upper() == "KCX"
+               for line in text.splitlines()):
+            cmd.extend(["--add_templates", str(_BUNDLED_RESIDUE_TEMPLATES)])
+        # 4UBP contains an explicit LINK from ACE:A:0 to MET:A:1, but the
+        # crystallographic distance is outside Meeko's automatic bond cutoff.
+        # Mark this reviewed terminal cap as blunt; this preserves the atoms
+        # and coordinates while allowing the declared PDB LINK to remain a
+        # terminal connection rather than inventing a new bond.
+        ace_zero = any(
+            line.startswith(("ATOM", "HETATM"))
+            and line[17:20].strip().upper() == "ACE"
+            and line[22:27].strip() == "0"
+            for line in text.splitlines()
+        )
+        if ace_zero:
+            cmd.extend(["--blunt_ends", "A:0=0"])
     if allow_bad_res:
         cmd.append("--allow_bad_res")
     code = run_command(cmd, destination.parent, log_path)

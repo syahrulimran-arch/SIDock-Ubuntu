@@ -63,11 +63,23 @@ def analyze_meeko_log(text: str) -> dict:
             "Meeko failed or logged a warning; inspect the exact output below. "
             "No residues have been deleted automatically."
         )
+    corrective_options = []
+    if mismatches:
+        corrective_options.extend([
+            "Inspect the listed residues in the reviewed PDB and compare atom names, occupancy, connectivity, alternate locations and terminal chemistry.",
+            "Use experimentally supported coordinates or a separately documented, validated repair model; preserve the original PDB.",
+            "Rerun Meeko on the repaired temporary structure and verify that no protein residues or atoms disappeared.",
+        ])
+    if unknown_templates:
+        corrective_options.append(
+            "Provide a reviewed offline residue template for a chemically modified polymer, or perform the separately audited metal/component treatment; do not use residue deletion as a repair."
+        )
     significant = [line for line in text.splitlines() if line.strip()]
     return {
         "template_mismatches": sorted(mismatches),
         "unknown_components": sorted(unknown_templates),
         "warnings": warnings,
+        "corrective_options": corrective_options,
         "last_log_lines": "\n".join(significant[-70:]),
     }
 

@@ -74,6 +74,44 @@ def parse_dlg_clusters(dlg: Path) -> list[dict[str, object]]:
         if m:
             rank, low, run, mean, size = int(m.group(1)), float(m.group(2)), int(m.group(3)), float(m.group(4)), int(m.group(5))
             rows.append({"ligand": dlg.stem, "cluster_rank": rank, "cluster_size": size, "cluster_percentage": 100.0 * size / _dlg_run_count(text), "lowest_binding_energy": low, "mean_binding_energy": mean, "run_number": run, "pose_model": run})
+    if rows:
+        return rows
+    # AutoDock4 emits a model-based summary instead of the pipe-delimited
+    # histogram when only one conformation is available (common in smoke
+    # tests and deliberately small technical runs). Preserve that valid
+    # result rather than silently producing an empty cluster table.
+    total = _dlg_run_count(text)
+    current = None
+    for line in text:
+        model = re.match(r"^\s*MODEL\s+(\d+)", line)
+        if model:
+            if current and {"cluster_rank", "cluster_size", "lowest_binding_energy"}.issubset(current):
+                current["cluster_percentage"] = 100.0 * int(current["cluster_size"]) / max(total, 1)
+                current["mean_binding_energy"] = current["lowest_binding_energy"]
+                current["pose_model"] = current["run_number"]
+                rows.append(current)
+            current = {"ligand": dlg.stem, "pose_model": int(model.group(1))}
+            continue
+        if current is None:
+            continue
+        run = re.search(r"USER\s+Run\s*=\s*(\d+)", line)
+        rank = re.search(r"USER\s+Cluster Rank\s*=\s*(\d+)", line)
+        size = re.search(r"USER\s+Number of conformations in this cluster\s*=\s*(\d+)", line)
+        energy = re.search(r"USER\s+Estimated Free Energy of Binding\s*=\s*([+-]?\d+(?:\.\d+)?)", line)
+        if run:
+            current["run_number"] = int(run.group(1))
+        if rank:
+            current["cluster_rank"] = int(rank.group(1))
+        if size:
+            current["cluster_size"] = int(size.group(1))
+        if energy and "lowest_binding_energy" not in current:
+            current["lowest_binding_energy"] = float(energy.group(1))
+    if current and {"cluster_rank", "cluster_size", "lowest_binding_energy"}.issubset(current):
+        current["cluster_percentage"] = 100.0 * int(current["cluster_size"]) / max(total, 1)
+        current["mean_binding_energy"] = current["lowest_binding_energy"]
+        current["run_number"] = current.get("run_number", current.get("pose_model", 1))
+        current["pose_model"] = current["run_number"]
+        rows.append(current)
     return rows
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .guided_workflow import (
     approved, active_run, compound_profile, load_workflow, protein_profile,
-    _json, _source,
+    receptor_approval_readiness, _json, _source,
 )
 from .manual_docking import (
     root as manual_root, settings, job_status, prepared_ligands,
@@ -64,10 +64,18 @@ def action(project: Path, task: str, label: str, *, disabled=False) -> str:
 def approve_form(project: Path, step: int, label="Approve and continue") -> str:
     if approved(project, step):
         return f"<p><b>Step {step} approved for current inputs.</b> If you change anything, it requires reapproval.</p>"
+    disabled = False
+    reason = ""
+    if step == 2:
+        readiness = receptor_approval_readiness(project)
+        disabled = not readiness["ready"]
+        reason = " ".join(readiness["reasons"])
     return (
         f"<form method='post' action='/projects/{e(project.name)}/guided/approve'>"
         f"<input type='hidden' name='step' value='{step}'>"
-        f"<button type='submit'>{e(label)}</button></form>"
+        f"<button type='submit' {'disabled' if disabled else ''}>{e(label)}</button>"
+        + (f"<p class='error'><b>Approval unavailable:</b> {e(reason)}</p>" if reason else "")
+        + "</form>"
     )
 
 
@@ -420,6 +428,10 @@ def step2(project: Path) -> str:
             )
         for note in diagnostics["warnings"]:
             content.append(f"<p class='error'>{e(note)}</p>")
+        if diagnostics.get("corrective_options"):
+            content.append("<p><b>Corrective options:</b></p><ul>" + "".join(
+                f"<li>{e(option)}</li>" for option in diagnostics["corrective_options"]
+            ) + "</ul>")
         content.append(
             "<details open><summary>Actual Meeko output (last 70 nonblank lines)</summary>"
             f"<pre style='max-height:28rem;overflow:auto;white-space:pre-wrap'>"
