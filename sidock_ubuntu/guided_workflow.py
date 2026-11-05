@@ -595,6 +595,17 @@ def approve(project: Path, step: int) -> dict:
         if not (manual_root(project) / "receptor.pdbqt").is_file():
             raise RuntimeError("Prepare or import a receptor PDBQT before approving protein")
         receptor_review = _json(manual_root(project) / "inputs/receptor_review.json")
+        imported_source = str(receptor_review.get("source_path", ""))
+        ob_candidate = manual_root(project) / "inputs/receptor_openbabel_candidate.pdbqt"
+        if Path(imported_source).resolve() == ob_candidate.resolve():
+            ob_audit = _json(manual_root(project) / "inputs/receptor_openbabel_audit.json")
+            if (not ob_audit or ob_audit.get("approved_for_docking") is False):
+                raise RuntimeError(
+                    "Open Babel generated a receptor PDBQT file, but its charge, "
+                    "protonation and any metal treatment have not been scientifically "
+                    "reviewed. Download/inspect the candidate and audit first; "
+                    "this export is not automatic Step 2 docking approval."
+                )
         if (receptor_review.get("clean_sha256") != _sha_file(manual_root(project) / "inputs/protein_clean.pdb")
                 or receptor_review.get("receptor_sha256") != _sha_file(manual_root(project) / "receptor.pdbqt")):
             raise RuntimeError("Receptor PDBQT is not associated with the current reviewed protein. Reimport or reprepare it.")
