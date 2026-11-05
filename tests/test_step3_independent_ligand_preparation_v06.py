@@ -141,3 +141,43 @@ def test_incomplete_preparation_cannot_be_marked_verified(tmp_path):
     (folder / "AA-1.pdbqt").write_text("ROOT\nENDROOT\n")
     assert compound_profile(project)["prepared_count"] == 0
     assert not compound_profile(project)["prepared"]
+
+
+
+def test_meeko_preparation_creates_empty_destination_folder(tmp_path, monkeypatch):
+    from sidock_ubuntu import core
+
+    source = tmp_path / "source.sdf"
+    source.write_text("fixture")
+    destination = tmp_path / "first-run/ligands/prepared/AA-1.pdbqt"
+    log_path = tmp_path / "first-run/logs/prepare_AA-1.log"
+    monkeypatch.setattr(core, "resolve_meeko_script", lambda *_: "mk_prepare_ligand.py")
+
+    def fake_run(command, cwd, log):
+        assert cwd.is_dir()
+        assert destination.parent.is_dir()
+        destination.write_text(
+            "ROOT\nHETATM    1  C1  UNL A   1      10.000  20.000  30.000  1.00  0.00    +0.100 C\nENDROOT\n"
+        )
+        return 0
+
+    monkeypatch.setattr(core, "run_command", fake_run)
+    assert core.prepare_ligand(source, destination, log_path) == destination
+    assert destination.stat().st_size > 0
+
+
+def test_meeko_empty_output_rejected(tmp_path, monkeypatch):
+    from sidock_ubuntu import core
+
+    source = tmp_path / "sample.sdf"
+    source.write_text("fixture")
+    target = tmp_path / "prepared/sample.pdbqt"
+    monkeypatch.setattr(core, "resolve_meeko_script", lambda *_: "mk_prepare_ligand.py")
+
+    def invalid_run(command, cwd, log):
+        target.write_text("ROOT\nENDROOT\n")
+        return 0
+
+    monkeypatch.setattr(core, "run_command", invalid_run)
+    with pytest.raises(RuntimeError, match="no atoms"):
+        core.prepare_ligand(source, target, tmp_path / "logs/ligand.log")
