@@ -646,6 +646,12 @@ def step5(project: Path, *, selected_run=None) -> str:
                                    + label + "</a></p>")
                 content.append(f"<p><a href='/projects/{e(project.name)}/artifacts/{e(result['bundle'])}'>"
                                "Download all analysis files (ZIP)</a></p>")
+                diagrams = sorted(name for name in result.get("artifacts", {})
+                                  if "_interactions_2d" in Path(name).name and name.endswith(".png"))
+                if diagrams:
+                    content.append("<details><summary>2D protein–ligand interaction figures</summary>" +
+                                   "".join(f"<p><a href='/projects/{e(project.name)}/artifacts/{e(name)}'>"
+                                           f"{e(Path(name).name)}</a></p>" for name in diagrams) + "</details>")
             if result.get("warnings"):
                 content.append("<details><summary>Analysis warnings and missing outputs</summary><ul>" +
                                "".join("<li>" + e(w) + "</li>" for w in result["warnings"]) + "</ul></details>")

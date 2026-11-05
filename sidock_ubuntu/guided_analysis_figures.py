@@ -22,6 +22,15 @@ def generate_figures(rows, receptor, destination, *, activity_rows=(), structure
     figures, warnings = [], []
     ranked = sorted([row for row in rows if row.get("lowest_docking_energy") is not None],
                     key=lambda row: (row["lowest_docking_energy"], row["compound_id"]))
+    # A structure sketch or contact heatmap is not a ligand-centred interaction
+    # diagram. Export a separate evidence-bound diagram for every compound.
+    from .interaction_diagram import draw_interaction_diagrams
+    for row in ranked:
+        if row.get("plip_status") == "COMPLETE":
+            try:
+                figures.extend(draw_interaction_diagrams(row, (structures or {}).get(row["compound_id"]), destination))
+            except Exception as exc:
+                warnings.append(row["compound_id"] + " 2D interaction diagram unavailable: " + str(exc))
 
     def save(fig, name, caption):
         fig.text(.5, .012, LABEL, ha="center", fontsize=8)

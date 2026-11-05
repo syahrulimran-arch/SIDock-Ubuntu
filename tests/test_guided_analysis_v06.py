@@ -119,10 +119,13 @@ def test_saved_run_produces_reports_figures_archive_and_reuses_without_docking(t
     assert (out / "figures/docking_ranking.png").is_file()
     assert (out / "figures/A-1_pose.png").is_file()
     assert (out / "figures/A-1_structure.png").is_file()
+    assert (out / "figures/A-1_interactions_2d.png").is_file()
+    assert "A-1_interactions_2d.png" in report
     assert (out / "figures/A-1_binding_pose.py").is_file()
     assert "<img" in (out / "scientific_report.html").read_text()
     with zipfile.ZipFile(project / result["bundle"]) as archive:
         assert {"scientific_report.md", "evidence.json", "figures/docking_ranking.png",
+                "figures/A-1_interactions_2d.png",
                 "sources/dlg/A-1.dlg"}.issubset(archive.namelist())
     assert all(sha(p) == expected for p, expected in original.items())
     cached = ga.analyze(project, run_id=run.name)
@@ -161,6 +164,20 @@ def test_changed_dlg_invalidates_report_and_keeps_previous_revision(tmp_path, mo
     second = ga.analyze(project, run_id=run.name)
     assert second["analysis_directory"] != first["analysis_directory"]
     assert (project / first["analysis_directory"] / "evidence.json").is_file()
+
+
+def test_older_analysis_version_is_not_reused_without_new_figures(tmp_path, monkeypatch):
+    project, run = fixture_run(tmp_path, count=1)
+    mock_plip(monkeypatch)
+    first = ga.analyze(project, run_id=run.name)
+    pointer = run / "analysis_result.json"
+    data = json.loads(pointer.read_text())
+    data["schema"] = "guided-analysis-1"
+    pointer.write_text(json.dumps(data))
+    assert ga.analysis_status(project, run)["status"] == "STALE"
+    second = ga.analyze(project, run_id=run.name)
+    assert second["analysis_directory"] != first["analysis_directory"]
+    assert (project / second["analysis_directory"] / "figures/A-1_interactions_2d.png").is_file()
 
 
 def test_failed_figures_can_be_retried_without_changing_docking_inputs(tmp_path, monkeypatch):
@@ -272,6 +289,7 @@ def test_gui_runs_saved_analysis_without_docking_approval_and_links_downloads(tm
         assert response.status_code == 303
         html = client.get(response.headers["location"]).text
         assert "Download all analysis files (ZIP)" in html
+        assert "2D protein–ligand interaction figures" in html
         assert "no redocking" in html
         download = client.get(f"/projects/{project.name}/artifacts/{result['bundle']}")
         assert download.status_code == 200

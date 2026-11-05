@@ -24,7 +24,7 @@ from .manual_docking import root, active_run, complete_dlg_energy, _ligand_sdf, 
 from .plip_runner import run_plip_analysis
 from .scientific_report import write_scientific_report
 
-SCHEMA = "guided-analysis-1"
+SCHEMA = "guided-analysis-2"
 
 
 def _sha(path):
@@ -58,6 +58,8 @@ def analysis_status(project, run):
     result = _read_json(run / "analysis_result.json")
     if not result:
         return {}
+    if result.get("schema") != SCHEMA:
+        return {**result, "status": "STALE", "stale_reason": "Analysis was updated; rerun analysis to generate the current figures"}
     base = Path(project).resolve()
     for group in ("inputs", "artifacts"):
         for name, expected in result.get(group, {}).items():
@@ -180,14 +182,15 @@ def analyze(project, *, run_id=None):
                 try:
                     work = out / ("plip_" + cid)
                     contacts = out / ("interactions_plip_" + cid + ".csv")
-                    run_plip_analysis(Path(row["complex_file"]), work, contacts, compound_id=cid,
-                                      pose_id=str(pose.selected_model), ligand_identity=("LIG", "Z", "999"))
+                    plip_output = run_plip_analysis(Path(row["complex_file"]), work, contacts, compound_id=cid,
+                                                    pose_id=str(pose.selected_model), ligand_identity=("LIG", "Z", "999"))
                     with contacts.open(newline="") as handle:
                         interactions = list(csv.DictReader(handle))
                     count = Counter(r["interaction_type"] for r in interactions)
                     row.update(plip_status="COMPLETE", analysis_status="COMPLETE", interactions=interactions,
                                PLIP_H_bonds=count["hydrogen_bond"], PLIP_hydrophobic=count["hydrophobic"],
                                PLIP_pi_stack=count["pi-stack"], PLIP_salt_bridge=count["salt_bridge"])
+                    row["plip_reports"] = [str(p) for p in getattr(plip_output, "raw_output_paths", [])]
                     _save_json(work / "provenance.json", {"ligand_identity": ["LIG", "Z", "999"],
                                                           "dlg_sha256": _sha(dlg), "receptor_sha256": _sha(receptor),
                                                           "selected_pose_sha256": _sha(pose.selected_pose_path),

@@ -34,11 +34,22 @@ JSON nulls. A successful report of no contacts yields zero. Both current
 ## Figures and experimental metadata
 
 Figures include an energy ranking, a PLIP residue-contact matrix when contacts
-exist, linked input structures, selected-pose coordinate plots and an activity
+exist, a ligand-centred **2D protein–ligand interaction diagram for each compound
+with completed PLIP analysis**, linked input structures, selected-pose coordinate plots and an activity
 scatter when at least two exact positive IC50 pairs exist. Ranking/contact
 figures display up to 40 compounds and 30 residue columns; detailed CSV/JSON
 retain every compound/contact. Structure/pose views cover the top five compounds.
 Coordinate plots do not invent molecular bonds or assign contacts from proximity.
+The 2D diagrams show recorded residue/chain names, interaction types and PLIP
+distances. Ligand atom/group endpoints use PLIP's recorded SMILES-to-PDB mapping
+only when its chemical graph matches the supplied structure. Otherwise lines
+are explicitly labelled as ligand-level contacts. Dense contact sets are paginated
+without dropping records. Completed PLIP reports with zero contacts produce an
+explicit no-contact diagram; missing PLIP is never depicted as zero contacts.
+Modern PLIP `pi_stacks` records and atom-group indices are retained. Diagrams
+and their JSON source records are included in the HTML report and ZIP; Step 5
+also provides individual PNG download links. Existing analyses must be rerun
+after updating to add these diagrams; docking need not be repeated.
 Metal positions are shown from the saved receptor. PyMOL rendering scripts are
 always exported for these top poses; molecular PNGs are also rendered when the
 `pymol` executable is available. All displayed figures identify the docking as

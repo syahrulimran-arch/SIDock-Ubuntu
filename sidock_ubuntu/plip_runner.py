@@ -165,12 +165,33 @@ def _interaction_atom_indices(item, kind):
             return donor, acceptor
         if protein_is_donor in {'false', '0', 'no'}:
             return acceptor, donor
+    if kind in {'pi-stack', 'pi-cation', 'salt_bridge'}:
+        def group(name):
+            node = item.find(name)
+            if node is None:
+                return ''
+            return ','.join(child.text.strip() for child in node if child.text and child.text.strip()) or (node.text or '').strip()
+        return group('prot_idx_list'), group('lig_idx_list')
+    if kind == 'halogen_bond':
+        return _first_text(item, 'acc_idx', 'acceptoridx'), _first_text(item, 'don_idx', 'donoridx')
+    if kind == 'water_bridge':
+        protein_is_donor = _text(item, 'protisdon').lower()
+        donor, acceptor = _text(item, 'donor_idx'), _text(item, 'acceptor_idx')
+        if protein_is_donor in {'true', '1'}:
+            return donor, acceptor
+        if protein_is_donor in {'false', '0'}:
+            return acceptor, donor
+    if kind == 'metal_contact' and _text(item, 'location') == 'ligand':
+        return _text(item, 'metal_idx'), _text(item, 'target_idx')
     return '', ''
 
 
 def normalize_plip_interactions(reports: list[Path], destination: Path, *, compound_id='', pose_id='', ligand_identity=None) -> Path:
     rows=[]
-    type_map={'hydrogen_bonds':'hydrogen_bond','hydrophobic_interactions':'hydrophobic','pistacking':'pi-stack','pi_cation_interactions':'pi-cation','salt_bridges':'salt_bridge','halogen_bonds':'halogen_bond'}
+    type_map={'hydrogen_bonds':'hydrogen_bond','hydrophobic_interactions':'hydrophobic',
+              'pistacking':'pi-stack','pi_stacks':'pi-stack','pi_cation_interactions':'pi-cation',
+              'salt_bridges':'salt_bridge','halogen_bonds':'halogen_bond',
+              'water_bridges':'water_bridge','metal_complexes':'metal_contact'}
     matched_site = False
     for report in reports:
         root=ET.parse(report).getroot()
@@ -184,6 +205,8 @@ def normalize_plip_interactions(reports: list[Path], destination: Path, *, compo
         for section, interaction_type in type_map.items():
             for parent in (parent for site in sites for parent in site.findall(f'.//{section}')):
                 for item in list(parent):
+                    if interaction_type == 'metal_contact' and _text(item, 'location') != 'ligand':
+                        continue
                     chain=_text(item,'reschain'); resname=_text(item,'restype'); resnum=_text(item,'resnr')
                     protein_idx, ligand_idx = _interaction_atom_indices(item, interaction_type)
                     rows.append({'compound_id':compound_id,'pose_id':pose_id,'interaction_type':interaction_type,'protein_chain':chain,'protein_residue_name':resname,'protein_residue_number':resnum,'protein_atom':protein_idx,'ligand_atom':ligand_idx,'distance_A':_interaction_distance(item, interaction_type),'angle_deg':_first_text(item,'don_angle','angle'),'PLIP_source':'PLIP'})
