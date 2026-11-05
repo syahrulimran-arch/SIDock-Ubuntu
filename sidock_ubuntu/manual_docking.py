@@ -427,7 +427,7 @@ def grid(project: Path) -> dict:
         "run_id": token, "settings": t,
         "receptor_sha256": _sha(active_receptor),
         "model_status": model_status,
-        "scientific_approval": model_status != "EXPLORATORY_UNVALIDATED_NI_MODEL",
+        "scientific_approval": False,  # Manual/technical operation does not prove scientific validation
         "ligand_sha256": {x.name: _sha(x) for x in ligands},
         "metal_atoms_original": _input_metals(project),
         "metal_atoms_prepared": _pdbqt_metals(project, active_receptor),
@@ -511,16 +511,18 @@ def dock(project: Path) -> dict:
     results_csv = run / "results.csv"
     with results_csv.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(("compound_id", "lowest_docking_energy_kcal_mol", "status", "dlg_path"))
+        writer.writerow(("compound_id", "lowest_docking_energy_kcal_mol", "status",
+                         "model_status", "scientific_approval", "dlg_path"))
         for ligand in ligands:
             energy = energies[ligand.stem]
             dlg_file = dlg_dir / (ligand.stem + ".dlg")
             writer.writerow((ligand.stem, energy if energy is not None else "",
                              "COMPLETE" if energy is not None else "FAILED",
+                             selected_receptor_for_run(project)[1], False,
                              str(dlg_file) if dlg_file.exists() else ""))
     _, model_status = selected_receptor_for_run(project)
     result = {"run_id": token, "model_status": model_status,
-              "scientific_approval": model_status != "EXPLORATORY_UNVALIDATED_NI_MODEL",
+              "scientific_approval": False,  # Manual/technical operation does not prove scientific validation
               "total": len(ligands),
               "already_finished": len(ligands) - len(pending),
               "launched": len(pending),
