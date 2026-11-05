@@ -425,20 +425,6 @@ def step3(project: Path) -> str:
             + e("; ".join(profile["errors"])) + "</p>"
         )
     html_bits.append(
-        "<details><summary>Compound IDs and minimized/prepared files</summary><table>"
-        "<tr><th>Compound ID</th><th>Minimized SDF</th><th>Docking PDBQT</th></tr>"
-        + "".join(
-            "<tr><td>" + e(name) + "</td><td>"
-            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/source/{e(_compound_file_id(name))}.sdf'>View</a>"
-               if (manual_root(project)/"ligands/source"/(_compound_file_id(name)+".sdf")).is_file() else "Not prepared")
-            + "</td><td>"
-            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/prepared/{e(_compound_file_id(name))}.pdbqt'>View</a>"
-               if (manual_root(project)/"ligands/prepared"/(_compound_file_id(name)+".pdbqt")).is_file() else "Not prepared")
-            + "</td></tr>"
-            for name in profile["names"]
-        ) + "</table></details>"
-    )
-    html_bits.append(
         "<p><b>Preparation is independent of Step 2.</b> You may minimize and convert "
         "ligands to PDBQT now, even while receptor preparation is unresolved. "
         "Step 3 approval, grid generation and docking remain blocked until Step 2 "
@@ -459,6 +445,26 @@ def step3(project: Path) -> str:
         disabled=bool(profile["errors"]) or busy or profile["prepared"]
     ))
     html_bits.append(job_view(project))
+    if busy:
+        html_bits.append(
+            "<p><b>Ligand preparation is running.</b> This page will refresh "
+            "automatically to show the latest verified outputs.</p>"
+            "<script>setTimeout(function(){location.reload();}, 3500);</script>"
+        )
+    html_bits.append(
+        "<details><summary>Compound IDs and minimized/prepared files</summary><table>"
+        "<tr><th>Compound ID</th><th>Minimized SDF</th><th>Docking PDBQT</th></tr>"
+        + "".join(
+            "<tr><td>" + e(name) + "</td><td>"
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/source/{e(_compound_file_id(name))}.sdf'>View</a>"
+               if (manual_root(project)/"ligands/source"/(_compound_file_id(name)+".sdf")).is_file() else "Not prepared")
+            + "</td><td>"
+            + (f"<a href='/projects/{e(project.name)}/artifacts/manual_docking/ligands/prepared/{e(_compound_file_id(name))}.pdbqt'>View</a>"
+               if (manual_root(project)/"ligands/prepared"/(_compound_file_id(name)+".pdbqt")).is_file() else "Not prepared")
+            + "</td></tr>"
+            for name in profile["names"]
+        ) + "</table></details>"
+    )
     if not profile["prepared"]:
         html_bits.append(
             "<p>Step 3 approval unavailable: complete and verify every ligand preparation first.</p>"
