@@ -71,6 +71,10 @@ def readiness(project: Path) -> dict:
     candidate_hash = _sha(candidate)
     parameter_hash = _sha(params)
     saved_choice = _json(choice)
+    from .guided_workflow import _source
+    original_protein = _source(project, "protein")
+    if original_protein is None or saved_choice.get("protein_sha256") != _sha(original_protein):
+        reasons.append("Original protein source changed since the Step 2 review.")
     structural_audit = _json(source_audit_file)
     charged_audit = _json(charge_audit_file)
     hydrogen_audit = _json(type_audit_file)
@@ -118,6 +122,24 @@ def readiness(project: Path) -> dict:
     if smoke.get("atom_type_errors") or not smoke.get("grid", {}).get("maps_exist") or \
             not smoke.get("docking", {}).get("successful_completion"):
         reasons.append("Smoke test has atom-type, grid-map or docking completion errors.")
+    # The report must still point to real smoke outputs in THIS project.
+    # Distinguish JSON assertions from actual completed GLG and DLG evidence.
+    smoke_output_paths = [
+        smoke.get("grid", {}).get("glg"),
+        smoke.get("docking", {}).get("dlg"),
+        *(smoke.get("grid", {}).get("maps") or []),
+    ]
+    if not smoke_output_paths or any(
+            not isinstance(path, str) or not path.strip()
+            or not Path(path).resolve().is_relative_to(home.resolve())
+            or not Path(path).is_file() or Path(path).stat().st_size == 0
+            for path in smoke_output_paths):
+        reasons.append("Actual AutoGrid/AutoDock smoke outputs are missing or outside this project.")
+    elif not any("Successful Completion" in Path(path).read_text(
+            encoding="utf-8", errors="replace") for path in smoke_output_paths[:1]) or \
+         not any("Successful Completion" in Path(path).read_text(
+            encoding="utf-8", errors="replace") for path in smoke_output_paths[1:2]):
+        reasons.append("AutoGrid or AutoDock smoke log lacks a successful completion marker.")
     # The atom type list must be representable by the *same* user-supplied AD4 library.
     if not reasons:
         declared = {
