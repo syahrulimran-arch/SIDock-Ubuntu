@@ -43,6 +43,18 @@ Use a temporary copy of the reviewed receptor. Run actual installed Meeko throug
 
 Codex already reported a successful isolated offline KCX template test. Preserve that implementation and its regression tests. The subsequent full receptor test still identifies A:0, B:111, B:119, C:326, C:403 as unmatched; those are the immediate next blockers. Inspect their exact residue names, atom sets, adjacency, polymer connectivity and terminal/alternate-location annotations against the original PDB and Meeko's template matcher. Determine whether A:0 is an acetyl cap bonded to the protein rather than a free ligand, and inspect the other four residues independently. Fix template/representation problems narrowly on temporary copies, rerun only the Meeko intermediate stage and add targeted regression tests. Do not silently remove residues, use --allow_bad_res as a shortcut, or invent missing atoms.
 
+## Separate Step 3 live verification: all ligands, even with receptor blocked
+
+SIDock's SDF minimization and Meeko ligand-PDBQT conversion **must work before Step 2 is approved**, without pretending the metal-containing receptor is valid. Specifically inspect the existing project `sidock_projects/taha-ali-almahroom4` (the user's Step 3 screenshot: 16 compounds `AA-1` through `AA-16`). This is one regression project, not a hardcoded protein path or ligand-library special case.
+
+1. Preserve its original `input/compounds.sdf`, all existing `ligands/`, `manual_docking/`, finished grid maps/DLG and project approvals. Record source fingerprint and current output counts/hashes before any preparation. Do not recreate the project.
+2. Verify Step 3 now displays **Minimize and prepare compounds** above the compound table even without Step 2 approval. The POST handler must allow the `prepare` and `reuse_compounds` actions independent of protein approval.
+3. With user-approved normal ligand preparation, test **real** installed RDKit/MMFF or UFF and Meeko on this exact 16-compound SDF, without launching receptor preparation, AutoGrid or AutoDock. Inspect individual Meeko logs and diagnose any actual compound errors. If an earlier manual ligand job is running, do not start a second.
+4. Confirm exactly 16 distinct minimized SDF and 16 nonempty ligand PDBQT files with atoms and expected IDs, and a source-SDF-hash-matched ligand manifest. If interrupted, preserve completed outputs and test resume; never overwrite unexpected outputs.
+5. Refresh Step 3 and confirm `Molecules: 16 | Prepared: 16 | Verified preparations: Yes`, or report the exact remaining blocker and file/log. Step 3 **approval** must remain pending until Step 2 receptor approval. No docking is authorized.
+6. Test a second general-purpose, non-4UBP project to make sure this separation is truly independent of the protein, selected grid site and metal status. Run targeted automated tests and record local git commit/status in the report.
+7. Record the difference between `taha-ali-almahroom2` (previous Step 2 tests) and `taha-ali-almahroom4` (Step 3 screenshot); do not report tests on one as successful testing of the other.
+
 ## Phase D: Nickel restoration and custom AutoDock parameters
 
 Only if Meeko succeeds AND a complete locally available user-approved parameter file and individually justified Ni charge model exist:
