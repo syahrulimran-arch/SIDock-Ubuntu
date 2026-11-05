@@ -571,6 +571,14 @@ def import_existing_compounds(project: Path) -> dict:
 
 def _fingerprint(project: Path, step: int) -> str | None:
     if step == 2:
+        # An exploratory approval has its own source/parameter/smoke-test
+        # provenance. Do not require or overwrite the scientifically reviewed
+        # manual_docking/receptor.pdbqt for this separate mode.
+        existing = load_workflow(project).get("approvals", {}).get("2", {})
+        from .exploratory_approval import MODE, readiness as exploratory_readiness
+        if existing.get("mode") == MODE:
+            report = exploratory_readiness(project)
+            return report.get("digest") if report["ready"] else None
         src = _source(project, "protein")
         choice = manual_root(project) / "inputs/protein_choice.json"
         clean = manual_root(project) / "inputs/protein_clean.pdb"
@@ -696,6 +704,9 @@ def approve(project: Path, step: int) -> dict:
     current = load_workflow(project)
     current["approvals"][str(step)] = {
         "digest": digest, "at": datetime.now(timezone.utc).isoformat(),
+        "mode": approval_mode(project) if step >= 3 else "SCIENTIFIC_REVIEW",
+        "scientific_approval": approval_mode(project) != "EXPLORATORY_UNVALIDATED_NI_MODEL"
+                               if step >= 3 else True,
     }
     for later in STEPS:
         if later > step:
@@ -703,6 +714,56 @@ def approve(project: Path, step: int) -> dict:
     _update_workflow(project, current)
     _event(project, "APPROVE_STEP", {"step": step, "digest": digest})
     return current["approvals"][str(step)]
+
+
+def approval_mode(project: Path) -> str:
+    """Report current approved Step 2 mode, never infer scientific validity."""
+    if not approved(project, 2):
+        return "UNAPPROVED"
+    from .exploratory_approval import MODE
+    stored = load_workflow(project).get("approvals", {}).get("2", {})
+    return MODE if stored.get("mode") == MODE else "SCIENTIFIC_REVIEW"
+
+
+def approve_exploratory(project: Path, *, acknowledgement: str) -> dict:
+    """Approve only technical exploratory use, preserving scientific workflow."""
+    from .exploratory_approval import (
+        MODE, ACKNOWLEDGEMENT, readiness as exploratory_readiness,
+    )
+    from .manual_docking import job_status
+    if acknowledgement != ACKNOWLEDGEMENT:
+        raise RuntimeError("Explicitly acknowledge the unvalidated receptor and metal model.")
+    if job_status(project).get("status") == "RUNNING":
+        raise RuntimeError("A SIDock worker is still running; approval cannot be changed.")
+    report = exploratory_readiness(project)
+    if not report["ready"]:
+        raise RuntimeError(
+            "Exploratory receptor is not ready: " + "; ".join(report["reasons"])
+        )
+    current = load_workflow(project)
+    existing = current.get("approvals", {}).get("2", {})
+    if existing and existing.get("mode") != MODE and approved(project, 2):
+        raise RuntimeError(
+            "A standard receptor is already approved. Preserve it and use a separate "
+            "project before choosing technical exploratory mode."
+        )
+    current.setdefault("approvals", {})["2"] = {
+        "digest": report["digest"], "mode": MODE,
+        "receptor_sha256": report["receptor_sha256"],
+        "parameter_sha256": report["parameter_sha256"],
+        "scientific_approval": False,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    # A change in Step 2 approval invalidates later approvals, not any outputs.
+    current["approvals"].pop("3", None)
+    current["approvals"].pop("4", None)
+    _update_workflow(project, current)
+    _event(project, "APPROVE_TECHNICAL_EXPLORATORY_STEP2", {
+        "mode": MODE, "receptor_sha256": report["receptor_sha256"],
+        "parameter_sha256": report["parameter_sha256"],
+        "scientific_approval": False,
+    })
+    return current["approvals"]["2"]
 
 
 def ready_to_dock(project: Path) -> None:
