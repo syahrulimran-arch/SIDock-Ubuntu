@@ -93,7 +93,7 @@ def prepare(project, monkeypatch):
     assert first["status"] == "PREPARED"
     assert first["production_receptor_installed"] is False
     assert not (root(project)/"receptor.pdbqt").exists()
-    assert (root(project)/"inputs/protein_meeko_Ni_intermediate.pdbqt").is_file()
+    assert (root(project)/"inputs/protein_openbabel_Ni_intermediate.pdbqt").is_file()
     assert prepare_intermediate(project)["status"] == "REUSED"
     return first
 

@@ -277,11 +277,9 @@ def generate_protonated_charge_candidate(project: Path) -> dict:
     if len(structural_metal_lines) != len(metals):
         raise RuntimeError("Existing structural candidate does not retain every crystallographic metal")
 
-    library = Path.home() / "Desktop" / "AD4.1_bound_Ni.dat"
+    library = home / "custom_parameters.dat"
     if not library.is_file():
-        library = home / "custom_parameters.dat"
-    if not library.is_file():
-        raise RuntimeError("No Desktop AD4 parameter library is available for atom-type coverage audit")
+        raise RuntimeError("Select a project AutoDock4 parameter library in Step 2 before preparing receptor charges")
     library_types = _ad4_atom_types(library)
     output = home / "inputs/receptor_openbabel_protonated_charge_candidate.pdbqt"
     audit_path = home / "inputs/receptor_openbabel_protonated_charge_audit.json"
@@ -654,3 +652,22 @@ def prepare_exploratory_receptor(project: Path) -> dict:
     _event(project, "RECEPTOR_OPENBABEL_EXPLORATORY_CANDIDATE_GENERATED", {
         "candidate_sha256": audit["candidate_sha256"], "parameter_file_sha256": audit["parameter_file_sha256"]})
     return {**audit, "candidate": str(output), "audit": str(audit_path)}
+
+
+def prepare_openbabel_receptor(project: Path) -> dict:
+    """Complete the reviewed Open Babel chain; no smoke run or approval."""
+    from .manual_docking import root
+    if not (root(project) / "custom_parameters.dat").is_file():
+        raise RuntimeError("Select the AutoDock4 parameter library in Step 2 first")
+    stages = {}
+    for name, prepare in (
+        ("structural", generate_candidate),
+        ("charges", generate_protonated_charge_candidate),
+        ("hydrogen_types", audit_and_correct_hydrogen_types),
+        ("exploratory", prepare_exploratory_receptor),
+    ):
+        stages[name] = prepare(project)
+    return {"status": "PREPARED_REQUIRES_TECHNICAL_CHECK",
+            "candidate": stages["exploratory"]["candidate"],
+            "stages": stages, "scientific_approval": False,
+            "next_action": "Run one-ligand technical check, review its outcome, then approve."}

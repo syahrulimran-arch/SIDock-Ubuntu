@@ -4,10 +4,10 @@ channels:
 dependencies:
   - python=3.11
   - rdkit
+  - openbabel
   - scipy
   - gemmi
   - matplotlib
   - pip
   - pip:
-      - meeko>=0.6
       - -e .

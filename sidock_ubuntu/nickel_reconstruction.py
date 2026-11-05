@@ -1,7 +1,7 @@
 """Audited fixed-centre Ni preparation for manually vetted AutoDock4 studies.
 
 Metal coordinates are copied from the reviewed protein PDB; they are never
-optimized or invented. Meeko receives a separate *temporary* Ni-free protein,
+optimized or invented. Open Babel receives a separate *temporary* Ni-free protein,
 but the intermediate is never approved as a production receptor. Reconstitution
 requires a user-supplied complete AutoDock4 force-field library and individually
 specified metal partial charges with provenance. This does not establish that a
@@ -67,7 +67,7 @@ def sites(project: Path) -> list[dict]:
 
 
 def prepare_intermediate(project: Path) -> dict:
-    """Run Meeko without Ni; do NOT install an incomplete production receptor."""
+    """Run Open Babel without Ni; do NOT install an incomplete production receptor."""
     from .core import prepare_receptor
     project = Path(project).resolve()
     clean, choice = _reviewed_source(project)
@@ -76,9 +76,9 @@ def prepare_intermediate(project: Path) -> dict:
         raise RuntimeError("Reviewed protein has no Ni ions. Use ordinary receptor preparation.")
 
     folder = root(project) / "inputs"
-    temporary = folder / "protein_for_meeko_without_Ni.pdb"
-    intermediate = folder / "protein_meeko_Ni_intermediate.pdbqt"
-    log = root(project) / "logs/receptor_meeko_Ni_intermediate.log"
+    temporary = folder / "protein_for_openbabel_without_Ni.pdb"
+    intermediate = folder / "protein_openbabel_Ni_intermediate.pdbqt"
+    log = root(project) / "logs/receptor_openbabel_Ni_intermediate.log"
     metadata = folder / "Ni_intermediate.json"
 
     # Require an exact current-clean-hash match before reusing previous work.
@@ -96,19 +96,19 @@ def prepare_intermediate(project: Path) -> dict:
     temporary.write_text("\n".join(line for line in lines if line not in excluded)+"\n",
                          encoding="utf-8")
     if _atoms(temporary):
-        raise RuntimeError("Temporary Meeko input still contains Ni. Preparation aborted.")
+        raise RuntimeError("Temporary Open Babel input still contains Ni. Preparation aborted.")
     prepared = prepare_receptor(temporary, intermediate, log, allow_bad_res=False)
     if any(x.upper() == "NI" for x in pdbqt_atom_types(prepared)):
-        raise RuntimeError("Unexpected Ni in Meeko intermediate; aborted.")
+        raise RuntimeError("Unexpected Ni in Open Babel intermediate; aborted.")
     record = {
         "reviewed_clean_sha256": _sha_file(clean),
         "temporary_input_sha256": _sha_file(temporary),
         "intermediate_sha256": _sha_file(prepared),
         "excluded_Ni_sites": [x["key"] for x in metals],
         "Ni_coordinates_A": {x["key"]: x["xyz"] for x in metals},
-        "method": "Meeko preparation with Ni omitted only from temporary input",
+        "method": "Open Babel preparation with Ni omitted only from temporary input",
         "status": "UNVALIDATED_INTERMEDIATE_NO_METAL",
-        "meeko_log": str(log),
+        "openbabel_log": str(log),
     }
     _save_json(metadata, record)
     _event(project, "NICKEL_INTERMEDIATE_PREPARED", record)
@@ -172,13 +172,13 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
     if not parameter_source.strip() or not charge_source.strip():
         raise ValueError("Record scientific sources for both AutoDock parameters and Ni charges")
 
-    intermediate = root(project) / "inputs/protein_meeko_Ni_intermediate.pdbqt"
+    intermediate = root(project) / "inputs/protein_openbabel_Ni_intermediate.pdbqt"
     metadata = _json(root(project) / "inputs/Ni_intermediate.json")
     if (not intermediate.is_file()
             or metadata.get("reviewed_clean_sha256") != _sha_file(clean)
             or metadata.get("intermediate_sha256") != _sha_file(intermediate)
             or metadata.get("excluded_Ni_sites") != [x["key"] for x in metals]):
-        raise RuntimeError("No current Ni-free Meeko intermediate. Prepare it in Step 2 first.")
+        raise RuntimeError("No current Ni-free Open Babel intermediate. Prepare it in Step 2 first.")
     if set(charges) != {x["key"] for x in metals}:
         raise ValueError("Specify exactly one charge for each crystallographic Ni site: "
                          + ", ".join(x["key"] for x in metals))
@@ -206,7 +206,7 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
     atom_lines = [line for line in intermediate_text.splitlines()
                   if line.startswith(("ATOM", "HETATM"))]
     if not atom_lines:
-        raise RuntimeError("Meeko intermediate PDBQT has no atoms")
+        raise RuntimeError("Open Babel intermediate PDBQT has no atoms")
     if any(line[17:20].strip() == "NI" for line in atom_lines):
         raise RuntimeError("Intermediate already contains nickel; refusing to duplicate ions")
     serials = [int(line[6:11]) for line in atom_lines]
@@ -216,9 +216,9 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
         for index, site in enumerate(metals)
     ]
     final = root(project) / "inputs/protein_Ni_reconstructed.pdbqt"
-    # Maintain Meeko protein atoms exactly; append Ni at rigid receptor tail.
+    # Maintain Open Babel protein atoms exactly; append Ni at rigid receptor tail.
     # Keep the metal records inside the rigid PDBQT body, before any END
-    # marker. Meeko versions differ in whether they include terminal records.
+    # marker. Open Babel versions differ in whether they include terminal records.
     base_lines = intermediate_text.splitlines()
     end_marker = next((i for i, line in enumerate(base_lines)
                        if line.strip() in {"END", "ENDMDL"}), len(base_lines))
@@ -255,7 +255,7 @@ def reconstruct(project: Path, *, atom_type: str, charges: dict[str, float],
         "reconstructed_sha256": _sha_file(final),
         "limitations": [
             "Unvalidated fixed-centre nonbonded metal model; no explicit Ni-ligand coordination bonds.",
-            "Meeko assigned protein charges without explicit metal electronic polarization.",
+            "Open Babel assigned protein charges without explicit metal electronic polarization.",
             "The nickel and KCX metal environment require experimental redocking/geometry review.",
         ],
         "timestamp": datetime.now(timezone.utc).isoformat(),

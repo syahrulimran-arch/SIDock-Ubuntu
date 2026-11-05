@@ -230,14 +230,14 @@ def step2(project: Path) -> str:
                 "The grid may not cover the biologically relevant site. Verify the "
                 "reference against experimental ligand/site evidence.</p>"
             )
-        # Meeko-free receptor export: available for ANY reviewed protein.
-        # The file is an inspectable rigid candidate, not a metal-site approval.
+        # Structural-only export stays available for inspection, separate from
+        # the complete preparation action below.
         ob_candidate = manual_root(project) / "inputs/receptor_openbabel_candidate.pdbqt"
         ob_audit = _json(manual_root(project) / "inputs/receptor_openbabel_audit.json")
         content.append(
-            "<h3>Generate receptor PDBQT without Meeko</h3>"
+            "<details><summary>Structural export and audit (advanced)</summary>"
             "<p>Use Open Babel to convert the reviewed PDB directly to a "
-            "<b>rigid receptor PDBQT</b>. It does not require Meeko templates "
+            "<b>rigid receptor PDBQT</b>. It does not require residue templates "
             "for modified residues. This creates an inspectable file without "
             "approving metal parameters, protonation or previously unresolved atoms.</p>"
             + action(project, "receptor_openbabel",
@@ -261,102 +261,44 @@ def step2(project: Path) -> str:
             )
         content.append(
             "<p><small>Step 2 approval remains separate. A PDBQT file alone "
-            "does not validate protein charge, protonation or coordination chemistry.</small></p>"
+            "does not validate protein charge, protonation or coordination chemistry.</small></p></details>"
         )
-        content.append(
-            "<h3>Optional: Meeko receptor preparation</h3>"
-            "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
-            "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
-            + ("<p class='error'><b>Standard Meeko is disabled:</b> this reviewed PDB contains "
-               "catalytic nickel, which Meeko cannot parameterize automatically. "
-               "For metal-dependent docking, import a properly parameterized "
-               "metal-containing receptor PDBQT. Alternatively, use the separate "
-               "exploratory metal-free option below. The original receptor is untouched.</p>"
-               if nickel_remains else "")
-            + action(project, "receptor", "Prepare receptor using Meeko",
-                     disabled=nickel_remains or job.get("status") == "RUNNING")
-        )
-        if nickel_remains:
+        from .manual_docking import parameter_file_path
+        custom = parameter_file_path(project)
+        if not nickel_remains:
             content.append(
-                "<h3>Optional: prepare a metal-free exploratory receptor</h3>"
-                "<p>Meeko does not support NI in this receptor. This explicit option generates "
-                "a separate temporary PDB without the crystallographic nickel ions; it preserves your "
-                "original PDB and reviewed cleaned PDB, records a removal audit, and never "
-                "runs docking. <b>This is not suitable for interpreting nickel-dependent "
-                "urease inhibition.</b></p>"
-                f"<form method='post' action='/projects/{e(project.name)}/guided/action'>"
-                "<input type='hidden' name='action' value='receptor_metal_free'>"
-                "<label><input type='checkbox' required name='confirm_metal_free' "
-                "value='I_ACKNOWLEDGE_METAL_FREE'> "
-                "I explicitly approve generating a metal-free receptor for exploratory calculations; "
-                "I understand nickel-dependent interactions cannot be evaluated.</label>"
-                f"<button type='submit' {'disabled' if job.get('status') == 'RUNNING' else ''}>"
-                "Prepare exploratory metal-free receptor (no docking)</button></form>"
-            )
-        if nickel_remains:
-            from .nickel_reconstruction import sites as nickel_sites
-            from .manual_docking import parameter_file_path
-            site_list = nickel_sites(project)
-            intermediate = manual_root(project) / "inputs/protein_meeko_Ni_intermediate.pdbqt"
-            metadata = _json(manual_root(project) / "inputs/Ni_intermediate.json")
-            validated_intermediate = (
-                intermediate.is_file()
-                and metadata.get("reviewed_clean_sha256") == choice.get("clean_sha256")
-            )
-            custom = parameter_file_path(project)
-            content.append(
-                "<h3>Reconstruct crystallographic nickel centre (Ni retained)</h3>"
-                "<p>Step A prepares the protein with nickel omitted from a temporary "
-                "Meeko input; this is <b>not</b> the final metal-free receptor. "
-                "Step B restores the Ni ions at their exact crystallographic coordinates. "
-                "It requires a complete, scientifically sourced AutoDock4 parameter library "
-                "and individually specified Ni partial charges; neither is guessed.</p>"
-                + action(project, "receptor_ni_intermediate",
-                         "A. Prepare Ni-free Meeko intermediate (does not install receptor)",
+                "<h3>Prepare nonmetal receptor</h3>"
+                + action(project, "receptor", "Prepare nonmetal receptor with Open Babel",
                          disabled=job.get("status") == "RUNNING")
             )
-            content.append(
-                f"<p><b>Intermediate:</b> "
-                f"{'Ready for metal reconstruction' if validated_intermediate else 'Not prepared / stale'}</p>"
-                "<p><b>Ni coordinates preserved from the reviewed PDB:</b></p>"
-                "<table><tr><th>Site</th><th>X (Å)</th><th>Y (Å)</th><th>Z (Å)</th></tr>"
-                + "".join(
-                    f"<tr><td>{e(x['key'])}</td>"
-                    + "".join(f"<td>{v:.3f}</td>" for v in x["xyz"])
-                    + "</tr>" for x in site_list
-                ) + "</table>"
-            )
-            content.append(
-                f"<p>Custom AD4 parameter library: "
-                f"{e(custom.name) if custom else 'Missing — upload a fully specified library below'}</p>"
-                f"<form method='post' action='/projects/{e(project.name)}/guided/parameters' "
-                "enctype='multipart/form-data'>"
-                "<input type='hidden' name='next_step' value='2'>"
-                "<label>Upload complete AutoDock4 parameter library (.dat) "
-                "<input type='file' name='upload' accept='.dat,.txt'></label>"
-                "<label>Or select existing project-local .dat file "
-                "<input name='existing_path' placeholder='input/AD4_nickel_parameters.dat'></label>"
-                "<button>Use parameter library</button></form>"
-            )
-            content.append(
-                f"<form method='post' action='/projects/{e(project.name)}/guided/ni-reconstruct'>"
-                "<p><b>B. Reconstruct nickel from crystallographic coordinates</b></p>"
-                "<label>Nickel AutoDock4 type (must match atom_par in your library) "
-                "<input type='text' name='atom_type' maxlength='2' placeholder='Ni' required></label>"
-                "<label>Ni partial charges (e), individually and explicitly assigned "
-                "<input name='site_charges' required "
-                f"placeholder='{e(','.join(x['key'] + '=...' for x in site_list))}'></label>"
-                "<label>Parameter source / reference "
-                "<input name='parameter_source' required placeholder='Publication/DOI and parameterization method'></label>"
-                "<label>Charge source / reference "
-                "<input name='charge_source' required placeholder='Publication/DOI or documented charge model'></label>"
-                "<label><input type='checkbox' required name='confirm_nickel_model' "
-                "value='I_ACKNOWLEDGE_NI_MODEL'> "
-                "I acknowledge that a fixed, nonbonded Ni model requires scientific review "
-                "and native-ligand redocking before biological interpretation.</label>"
-                f"<button type='submit' {'disabled' if not validated_intermediate or not custom or job.get('status') == 'RUNNING' else ''}>"
-                "B. Restore Ni and install reviewed receptor (no docking)</button></form>"
-            )
+        content.append(
+            "<h3>Prepare receptor with Open Babel</h3>"
+            "<p>Use this project's parameter library, then prepare the receptor. "
+            "This completes structural export, hydrogen/charge preparation and atom typing, "
+            "while preserving the reviewed heavy atoms and metal coordinates. "
+            "Existing matching preparations are reused.</p>"
+            f"<p><b>AutoDock4 parameter library:</b> {e(custom.name) if custom else 'Select a library below'}</p>"
+            f"<form method='post' action='/projects/{e(project.name)}/guided/parameters' "
+            "enctype='multipart/form-data'>"
+            "<input type='hidden' name='next_step' value='2'>"
+            "<label>Complete AutoDock4 parameter library (.dat) "
+            "<input type='file' name='upload' accept='.dat,.txt'></label>"
+            "<label>Or existing project-local .dat file "
+            "<input name='existing_path' placeholder='input/AD4_parameters.dat'></label>"
+            "<button>Use parameter library</button></form>"
+            + action(project, "receptor_openbabel_pipeline", "Prepare receptor with Open Babel",
+                     disabled=not custom or job.get("status") == "RUNNING")
+            + "<p>Preparation does not start docking or approve the receptor. "
+            "For exploratory approval, run the separate one-ligand technical check below. "
+            "Metal charges and coordination remain unvalidated.</p>"
+            + action(project, "exploratory_smoke", "Run one-ligand technical check",
+                     disabled=not custom or not (manual_root(project) / "inputs/receptor_openbabel_exploratory.pdbqt").is_file()
+                     or not (manual_root(project) / "inputs/crystal_ligand.pdb").is_file()
+                     or job.get("status") == "RUNNING")
+        )
+        if not (manual_root(project) / "inputs/crystal_ligand.pdb").is_file():
+            content.append("<p>The technical check needs a saved reference component. "
+                           "Select and save one in the binding-site review above.</p>")
         content.append(
             "<p><b>Alternatively:</b> import a previously prepared and chemically verified "
             "PDBQT. This is useful for metal-dependent proteins.</p>"
@@ -393,51 +335,20 @@ def step2(project: Path) -> str:
                 "A metal-free result must be explicitly designated exploratory "
                 "under Step 4 and cannot be reported as native metal-site docking.</p>"
             )
-    content.append(job_view(project))
+    preparation_log = {
+        "receptor": "receptor_openbabel_standard.log",
+        "receptor_metal_free": "receptor_openbabel_metal_free.log",
+        "receptor_ni_intermediate": "receptor_openbabel_Ni_intermediate.log",
+    }.get(job.get("action"))
+    if preparation_log and not (manual_root(project) / "logs" / preparation_log).exists() and job.get("status") != "RUNNING":
+        content.append("<details><summary>Previous receptor preparation attempt (history)</summary>"
+                       + job_view(project) + "</details>")
+    else:
+        content.append(job_view(project))
     if job.get("status") == "RUNNING":
         content.append(
             "<p>Step 2 receptor export is running. Refreshing automatically.</p>"
             "<script>setTimeout(function(){location.reload();}, 3500);</script>"
-        )
-    from .receptor_diagnostics import read_receptor_diagnostics
-    diagnostic_action = job.get("action") in {
-        "receptor", "receptor_metal_free", "receptor_ni_intermediate"
-    }
-    diagnostics = read_receptor_diagnostics(
-        project,
-        exploratory_metal_free=job.get("action") == "receptor_metal_free",
-        nickel_intermediate=job.get("action") == "receptor_ni_intermediate",
-    )
-    if diagnostics.get("available") and (
-        diagnostic_action and job.get("status") in {"FAILED", "EXITED"}
-    ):
-        content.append(
-            "<h3>Why Meeko failed</h3>"
-            "<p>The error below is read from this project's preparation log. "
-            "The original PDB and reviewed cleaned PDB have not been modified.</p>"
-        )
-        if diagnostics["unknown_components"]:
-            content.append(
-                "<p><b>Unsupported component templates:</b> "
-                + e(", ".join(diagnostics["unknown_components"])) + "</p>"
-            )
-        if diagnostics["template_mismatches"]:
-            content.append(
-                "<p><b>Unmatched residues:</b> "
-                + e(", ".join(diagnostics["template_mismatches"])) + "</p>"
-            )
-        for note in diagnostics["warnings"]:
-            content.append(f"<p class='error'>{e(note)}</p>")
-        if diagnostics.get("corrective_options"):
-            content.append("<p><b>Corrective options:</b></p><ul>" + "".join(
-                f"<li>{e(option)}</li>" for option in diagnostics["corrective_options"]
-            ) + "</ul>")
-        content.append(
-            "<details open><summary>Actual Meeko output (last 70 nonblank lines)</summary>"
-            f"<pre style='max-height:28rem;overflow:auto;white-space:pre-wrap'>"
-            f"{e(diagnostics['last_log_lines'])}</pre></details>"
-            f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/{e('receptor_meeko_Ni_intermediate.log' if job.get('action') == 'receptor_ni_intermediate' else 'receptor_meeko_metal_free.log' if job.get('action') == 'receptor_metal_free' else 'receptor_meeko.log')}'>"
-            "Download complete Meeko log</a></p>"
         )
     from .exploratory_approval import MODE, readiness as exploratory_readiness
     from .guided_workflow import approval_mode
@@ -452,7 +363,7 @@ def step2(project: Path) -> str:
         )
     else:
         content.append(
-            "<h3>Separate exploratory receptor approval (without Meeko)</h3>"
+            "<h3>Approve Open Babel receptor for exploratory docking</h3>"
             "<p>Use the existing Open Babel candidate and successful "
             "AutoGrid4/AutoDock4 smoke-test evidence. This does not overwrite "
             "the standard receptor or imply scientifically validated metal "
@@ -462,8 +373,10 @@ def step2(project: Path) -> str:
         )
         if not ex["ready"]:
             content.append(
-                "<p><b>Outstanding exploratory prerequisites:</b> "
-                + e("; ".join(ex["reasons"])) + "</p>"
+                "<p>Complete Open Babel preparation and the one-ligand technical check above "
+                "before approving. If either fails, inspect the latest worker error.</p>"
+                "<details><summary>Outstanding exploratory prerequisites:</summary><p>"
+                + e("; ".join(ex["reasons"])) + "</p></details>"
             )
         content.append(
             f"<form action='/projects/{e(project.name)}/guided/approve-exploratory' method='post'>"
@@ -475,10 +388,8 @@ def step2(project: Path) -> str:
             f"<button type='submit' {'disabled' if not ex['ready'] or job.get('status') == 'RUNNING' else ''}>"
             "Approve for exploratory docking and continue</button></form>"
         )
-    content.append(
-        "<p>Standard receptor approval remains independent and does not run docking.</p>"
-        + approve_form(project, 2)
-    )
+    if receptor.is_file() and approval_mode(project) != MODE:
+        content.append("<h3>Approve independently reviewed imported receptor</h3>" + approve_form(project, 2))
     return "".join(content)
 
 

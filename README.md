@@ -2,6 +2,8 @@
 
 SIDock Ubuntu is an automated AutoDock4 molecular-docking workflow for Ubuntu. It performs target validation, CCD-aware reference chemistry reconstruction, receptor and ligand preparation, AutoGrid4/AutoDock4 docking, pose extraction, clustering, PLIP interaction analysis, figures, QC, and provenance tracking.
 
+Receptor and ligand PDBQT preparation uses Open Babel (`obabel`). Meeko is no longer used or required.
+
 ## Quick start
 
 ```bash
@@ -31,7 +33,7 @@ with one job. Parallel StageRunner execution is deferred to v0.5.
 
 SIDock scans non-polymer HETATM groups, excludes common solvent/buffer/ion records, writes `validation/reference_ligand_candidates.csv`, and records its deterministic selection. Use `--reference-ligand RES:CHAIN:NUMBER` when an explicit instance is required. Interactive ambiguity handling is supported by the candidate list; noninteractive runs stop with `E101` when selection is not sufficiently supported.
 
-Before Meeko, canonical protein residues are checked for missing heavy atoms. Incomplete residues within 5 Å of the reference ligand stop with `E202`. Residues 5–8 Å require `--allow-incomplete-peripheral`; remote residues may use the audited `--allow_bad_res` fallback with provenance.
+Before receptor preparation, canonical protein residues are checked for missing heavy atoms. Incomplete residues within 5 Å of the reference ligand stop with `E202`. Residues 5–8 Å require `--allow-incomplete-peripheral`; preparation preserves existing heavy atoms and never retries by deleting unmatched residues.
 
 PLIP is required for primary interaction annotations. The internal contact parser is retained only as a secondary cross-check.
 

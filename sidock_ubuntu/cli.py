@@ -11,7 +11,7 @@ from .orchestrator import StageRunner, config_change_audit
 from .executors import production_context_from_project, build_production_executors
 from .project_lock import ProjectExecutionLocked
 from . import __version__
-from .dependencies import resolve_meeko_receptor_preparer, resolve_plip_executable
+from .dependencies import resolve_plip_executable
 
 
 def parser() -> argparse.ArgumentParser:
@@ -53,14 +53,13 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 def doctor_status() -> dict:
-    checks = [("Python", sys.executable), ("RDKit", importlib.util.find_spec("rdkit")), ("Meeko Python module", importlib.util.find_spec("meeko")),
+    checks = [("Python", sys.executable), ("RDKit", importlib.util.find_spec("rdkit")),
               ("AutoGrid4", shutil.which("autogrid4")), ("AutoDock4", shutil.which("autodock4")),
               ("Open Babel", shutil.which("obabel")), ("PyMOL", shutil.which("pymol"))]
     items=[]
     for label,value in checks:
         available=bool(value); detail=value if isinstance(value,str) else ('available' if value else 'not detected')
         items.append({'name':label,'status':'AVAILABLE' if available else 'MISSING','detail':detail,'required':label not in {'PLIP','PyMOL'}})
-    meeko=resolve_meeko_receptor_preparer(); items.append({'name':'Meeko receptor preparer (mk_prepare_receptor.py)','status':'AVAILABLE' if meeko['available'] else 'MISSING','detail':meeko.get('path') or meeko['message'],'version':meeko.get('version'),'required':True})
     module=importlib.util.find_spec('plip'); items.append({'name':'PLIP Python module','status':'AVAILABLE' if module else 'MISSING','detail':str(module) if module else 'not detected','required':True})
     plip=resolve_plip_executable(); items.append({'name':'PLIP executable','status':'AVAILABLE' if plip['available'] else 'MISSING','detail':plip.get('path') or plip['message'],'version':plip.get('version'),'required':True})
     return {'status':'READY' if all(x['status']=='AVAILABLE' for x in items if x['required']) else 'NOT_READY','dependencies':items}

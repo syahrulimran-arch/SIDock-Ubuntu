@@ -15,9 +15,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdFMCS
 from rdkit.Chem import Descriptors, rdMolDescriptors
 
-from .core import pdbqt_atom_types, run_command, write_dpf
+from .core import pdbqt_atom_types, prepare_ligand, run_command, write_dpf
 from .model import DockingParameters, GridBox
-from .dependencies import resolve_meeko_script
 from .reference import load_local_ccd
 
 
@@ -156,11 +155,8 @@ def prepare_native_ligand(native_pdb: Path, output_dir: Path, ccd_path: Path | N
         raise ValueError("Native ligand has no 3D crystallographic coordinates")
     w = Chem.SDWriter(str(prepared_sdf)); w.write(mol); w.close()
     native_pdbqt = output_dir / "native_ligand.pdbqt"
-    exe = resolve_meeko_script('mk_prepare_ligand.py') or resolve_meeko_script('mk_prepare_ligand')
-    if not exe: raise RuntimeError("Meeko ligand preparation command not found")
     prep_log = output_dir / "native_ligand_prepare.log"
-    if run_command([exe, "-i", str(prepared_sdf.resolve()), "-o", str(native_pdbqt.resolve())], output_dir, prep_log) != 0:
-        raise RuntimeError(f"Native ligand preparation failed; see {prep_log}")
+    prepare_ligand(prepared_sdf, native_pdbqt, prep_log)
     return {"crystal": crystal, "prepared": mol, "crystal_pdb": crystal_pdb, "crystal_sdf": crystal_sdf, "prepared_sdf": prepared_sdf, "pdbqt": native_pdbqt, "reference_chemistry": reconstructed}
 
 

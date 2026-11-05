@@ -14,6 +14,7 @@ cat <<EOF
 
 Python environment installed.
 External executables still required on PATH:
+  obabel (Open Babel)
   autogrid4
   autodock4
 Optional for publication pose figures:

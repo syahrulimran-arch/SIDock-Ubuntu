@@ -200,12 +200,14 @@ def test_failed_receptor_preparation_displays_log_on_step2(tmp_path):
         "error": "Receptor preparation failed"
     }))
     html = step2(p)
-    assert "Why Meeko failed" in html
-    assert "Unsupported component templates:" in html
-    assert "Unmatched residues:" in html
+    assert "Why Meeko failed" not in html
+    assert "Unsupported component templates:" not in html
+    assert "Unmatched residues:" not in html
+    assert "Prepare receptor with Open Babel" in html
+    assert "Previous receptor preparation attempt (history)" in html
     assert "NI" in html
     assert "A:0" in html
-    assert "Download complete Meeko log" in html
+    assert "Download complete Meeko log" not in html
     assert (folder / "inputs/protein_clean.pdb").is_file()
     assert not (folder / "receptor.pdbqt").exists()
 
@@ -234,7 +236,7 @@ def test_exploratory_metal_free_requires_ack_and_preserves_original(tmp_path, mo
         prepare_protein(p, exploratory_metal_free=True)
     assert clean.read_bytes() == clean_before
     assert original.read_bytes() == original_before
-    assert not (folder/"inputs/protein_meeko_metal_free_input.pdb").exists()
+    assert not (folder/"inputs/protein_openbabel_metal_free_input.pdb").exists()
 
     values = settings(p)
     values["allow_missing_metal"] = True
@@ -267,28 +269,27 @@ def test_exploratory_metal_free_requires_ack_and_preserves_original(tmp_path, mo
     assert original.read_bytes() == original_before
     assert clean.read_bytes() == clean_before
     assert old_log.read_text() == "Previously failed: NI template missing\n"
-    assert (folder/"logs/receptor_meeko_metal_free.log").is_file()
+    assert (folder/"logs/receptor_openbabel_metal_free.log").is_file()
     assert (folder/"receptor.pdbqt").is_file()
     assert (folder/"inputs/metal_free_preparation_audit.json").is_file()
     review = json.loads((folder/"inputs/receptor_review.json").read_text())
-    assert review["preparation_audit"]["method"] == "MEEKO_RECEPTOR_PREPARATION"
+    assert review["preparation_audit"]["method"] == "OPENBABEL_RECEPTOR_PREPARATION"
     assert review["preparation_audit"]["log_sha256"]
     assert not (folder/"runs").exists()
     approve(p,2)
     assert approved(p,2)
 
 
-def test_metal_free_button_is_explicit_and_not_general_default(tmp_path):
+def test_meeko_buttons_removed_and_openbabel_pipeline_available(tmp_path):
     from sidock_ubuntu.guided_ui import step2
-    p=new_project(tmp_path)
-    select_protein(p,ligand_key="HAE:C:800",remove_groups=[])
-    ui=step2(p)
-    assert "receptor_metal_free" in ui
-    assert "confirm_metal_free" in ui
-    assert "I_ACKNOWLEDGE_METAL_FREE" in ui
-    assert "Prepare receptor using Meeko" in ui
-    assert "no docking" in ui
-
+    p = new_project(tmp_path)
+    select_protein(p, ligand_key="HAE:C:800", remove_groups=[])
+    ui = step2(p)
+    assert "Prepare receptor using Meeko" not in ui
+    assert "receptor_metal_free" not in ui
+    assert "receptor_ni_intermediate" not in ui
+    assert "receptor_openbabel_pipeline" in ui
+    assert "Run one-ligand technical check" in ui
 
 
 def test_standard_meeko_refuses_nickel_before_running_and_keeps_existing_log(tmp_path, monkeypatch):
@@ -322,16 +323,13 @@ def test_standard_meeko_refuses_nickel_before_running_and_keeps_existing_log(tmp
     assert not (folder / "runs").exists()
 
 
-def test_standard_meeko_button_is_disabled_but_exploratory_remains_available(tmp_path):
+def test_step2_shows_no_meeko_actions_for_nickel(tmp_path):
     from sidock_ubuntu.guided_ui import step2
     project = new_project(tmp_path)
     select_protein(project, ligand_key="HAE:C:800", remove_groups=[], remove_waters=True)
     page = step2(project)
-    assert "Standard Meeko is disabled" in page
-    assert "receptor_metal_free" in page
-    import re
-    assert re.search(r"<button[^>]*disabled[^>]*>Prepare receptor using Meeko</button>", page)
-
+    assert "Meeko" not in page
+    assert "Prepare receptor with Open Babel" in page
 
 
 def test_step2_does_not_assume_4ubp_or_hae_for_an_unrelated_protein(tmp_path):
@@ -367,7 +365,7 @@ def test_step2_does_not_assume_4ubp_or_hae_for_an_unrelated_protein(tmp_path):
     assert "Reconstruct crystallographic nickel centre" not in html
 
 
-def test_step2_nonmetal_protein_has_normal_meeko_path(tmp_path):
+def test_step2_nonmetal_protein_has_openbabel_path(tmp_path):
     """No metal means no Ni-specific preparation UI or forced model."""
     from sidock_ubuntu.guided_ui import step2
 
@@ -384,7 +382,7 @@ def test_step2_nonmetal_protein_has_normal_meeko_path(tmp_path):
         center=(10.0, 20.0, 30.0), remove_waters=True,
     )
     html = step2(project)
-    assert "Prepare receptor using Meeko" in html
+    assert "Prepare nonmetal receptor with Open Babel" in html
     assert "receptor_ni_intermediate" not in html
     assert "receptor_metal_free" not in html
     assert "Standard Meeko is disabled" not in html
@@ -394,9 +392,9 @@ def test_step2_approval_button_is_disabled_until_final_receptor_exists(tmp_path)
     project = new_project(tmp_path)
     select_protein(project, ligand_key="HAE:C:800", remove_groups=[], remove_waters=True)
     page = step2(project)
-    assert "Approval unavailable:" in page
-    assert "Run receptor preparation successfully or import a reviewed receptor PDBQT." in page
-    assert re.search(r"<button type='submit' disabled>Approve and continue</button>", page)
+    assert "Technical evidence:</b> Not ready" in page
+    assert "Outstanding exploratory prerequisites:" in page
+    assert re.search(r"<button type='submit' disabled>Approve for exploratory docking and continue</button>", page)
 
 
 def test_meeko_diagnostics_include_generic_corrective_options(tmp_path):

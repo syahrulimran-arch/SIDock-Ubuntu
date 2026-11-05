@@ -310,7 +310,7 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
     """Prepare exactly the reviewed receptor; optional explicit metal-free branch.
 
     The scientific clean PDB and original input are NEVER modified. The
-    exploratory branch removes nickel only from a distinct Meeko input file,
+    exploratory branch removes nickel only from a distinct Open Babel input file,
     keeps a separate log, and records which ions were excluded.
     """
     from .core import prepare_receptor
@@ -330,12 +330,12 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
     })
     if nickel_residues and not exploratory_metal_free:
         raise RuntimeError(
-            "Standard Meeko receptor preparation blocked before execution: "
-            "the reviewed protein still contains unsupported nickel residues "
+            "Standard receptor preparation blocked before execution: "
+            "the reviewed protein contains nickel residues requiring explicit metal treatment "
             + ", ".join(nickel_residues) + ". "
             "Choose a scientifically parameterized metal-aware receptor PDBQT "
-            "for urease docking, or explicitly approve the exploratory metal-free "
-            "preparation button in Step 2. No protein or docking files were changed."
+            "or use Prepare receptor with Open Babel for the metal-retaining exploratory workflow. Legacy metal-free "
+            "preparation requires explicit acknowledgment. No protein or docking files were changed."
         )
     removal_audit = None
     if exploratory_metal_free:
@@ -353,54 +353,49 @@ def prepare_protein(project: Path, *, exploratory_metal_free: bool = False) -> d
                 "Reviewed receptor has no crystallographic NI atoms. "
                 "Use standard receptor preparation instead."
             )
-        temp = folder / "protein_meeko_metal_free_input.pdb"
+        temp = folder / "protein_openbabel_metal_free_input.pdb"
         temp.write_text(
             "\n".join(line for line in lines if line not in metals) + "\n",
             encoding="utf-8",
         )
         removal_audit = {
-            "reason": "EXPLORATORY_METAL_FREE_MEEKO_PREPARATION",
+            "reason": "EXPLORATORY_METAL_FREE_OPENBABEL_PREPARATION",
             "excluded_metal_atoms": len(metals),
             "excluded_residues": sorted({
                 f"{line[17:20].strip()}:{line[21:22].strip() or '-'}:{line[22:27].strip()}"
                 for line in metals
             }),
             "reviewed_clean_pdb_sha256": _sha_file(src),
-            "temporary_meeko_pdb_sha256": _sha_file(temp),
+            "temporary_openbabel_pdb_sha256": _sha_file(temp),
             "warning": (
                 "Exploratory metal-free receptor: nickel coordination is absent; "
                 "not a validated urease metal-site docking model."
             ),
         }
-        src_for_meeko = temp
-        target = folder / "protein_meeko_metal_free.pdbqt"
-        log = manual_root(project) / "logs/receptor_meeko_metal_free.log"
+        src_for_conversion = temp
+        target = folder / "protein_openbabel_metal_free.pdbqt"
+        log = manual_root(project) / "logs/receptor_openbabel_metal_free.log"
         _save_json(folder / "metal_free_preparation_audit.json", removal_audit)
     else:
-        src_for_meeko = src
-        target = folder / "protein_meeko.pdbqt"
-        log = manual_root(project) / "logs/receptor_meeko.log"
-    prepared = prepare_receptor(src_for_meeko, target, log, allow_bad_res=False)
+        src_for_conversion = src
+        target = folder / "protein_openbabel.pdbqt"
+        log = manual_root(project) / "logs/receptor_openbabel_standard.log"
+    prepared = prepare_receptor(src_for_conversion, target, log, allow_bad_res=False)
     if exploratory_metal_free:
         from .manual_docking import pdbqt_atom_types
         if any(t.upper() == "NI" for t in pdbqt_atom_types(prepared)):
             raise RuntimeError(
-                "Metal-free Meeko output unexpectedly contains nickel; refusing to install"
+                "Metal-free Open Babel output unexpectedly contains nickel; refusing to install"
             )
-    from .receptor_diagnostics import read_receptor_diagnostics
     preparation_audit = {
-        "method": "MEEKO_RECEPTOR_PREPARATION",
-        "source_pdb": str(src_for_meeko),
-        "source_pdb_sha256": _sha_file(src_for_meeko),
+        "method": "OPENBABEL_RECEPTOR_PREPARATION",
+        "source_pdb": str(src_for_conversion),
+        "source_pdb_sha256": _sha_file(src_for_conversion),
         "prepared_pdbqt": str(prepared),
         "prepared_pdbqt_sha256": _sha_file(prepared),
         "log": str(log),
         "log_sha256": _sha_file(log),
         "exploratory_metal_free": bool(exploratory_metal_free),
-        "diagnostics": read_receptor_diagnostics(
-            project,
-            exploratory_metal_free=exploratory_metal_free,
-        ),
     }
     install_reviewed_receptor(project, prepared, audit=preparation_audit)
     result = {

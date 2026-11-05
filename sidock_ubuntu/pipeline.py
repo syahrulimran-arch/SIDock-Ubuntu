@@ -113,7 +113,7 @@ def _version(executable: str | None, flag: str='--version') -> str:
 
 def _write_provenance(project: Project, receptor: Path, sdf: Path, seed: int) -> dict[str, object]:
     """Write provenance early so failed validation runs remain auditable."""
-    provenance={'sidock_version':__version__,'python_version':platform.python_version(),'rdkit_version':__import__('rdkit').__version__,'meeko_version':getattr(__import__('meeko'),'__version__','unknown'),'autodock_version':_version(resolve_executable('autodock4','AutoDock4')),'autogrid_version':_version(resolve_executable('autogrid4','AutoGrid4')),'pymol_version':_version(shutil.which('pymol'),'-h'),'operating_system':platform.platform(),'command_line':' '.join(sys.argv),'random_seed':seed,'utc_datetime':datetime.now(timezone.utc).isoformat(),'input_sha256':{'receptor':_sha256(receptor),'ligands':_sha256(sdf)}}
+    provenance={'sidock_version':__version__,'python_version':platform.python_version(),'rdkit_version':__import__('rdkit').__version__,'preparation_engine':'Open Babel','openbabel_version':_version(shutil.which('obabel'),'-V'),'autodock_version':_version(resolve_executable('autodock4','AutoDock4')),'autogrid_version':_version(resolve_executable('autogrid4','AutoGrid4')),'pymol_version':_version(shutil.which('pymol'),'-h'),'operating_system':platform.platform(),'command_line':' '.join(sys.argv),'random_seed':seed,'utc_datetime':datetime.now(timezone.utc).isoformat(),'input_sha256':{'receptor':_sha256(receptor),'ligands':_sha256(sdf)}}
     (project.path/'provenance.json').write_text(json.dumps(provenance,indent=2),encoding='utf-8')
     return provenance
 
@@ -134,16 +134,11 @@ def run_all(project_dir: Path, receptor: Path, sdf: Path, *, padding: float=8.0,
     update_state(project.path, 'REFERENCE', 'PASS')
     log('Reading experimental IC50 metadata')
     assay=extract_sdf_assay(sdf,project.path/'analysis/assay.csv')
-    (project.path/'qc/ligand_preparation.csv').write_text('compound_id,input_record_index,heavy_atoms,formal_charge,connected_components,3D_input,embedding_status,minimization_status,Meeko_status,PDBQT_charge_sum,active_torsions,warnings,failure_reason,final_status\n' + '\n'.join(f"{r.get('ligand','')},{r.get('input_record_index','')},,,,,,,,,,,{r.get('failure_reason','')},{r.get('final_status','')}" for r in assay) + '\n', encoding='utf-8')
+    (project.path/'qc/ligand_preparation.csv').write_text('compound_id,input_record_index,heavy_atoms,formal_charge,connected_components,3D_input,embedding_status,minimization_status,OpenBabel_status,PDBQT_charge_sum,active_torsions,warnings,failure_reason,final_status\n' + '\n'.join(f"{r.get('ligand','')},{r.get('input_record_index','')},,,,,,,,,,,{r.get('failure_reason','')},{r.get('final_status','')}" for r in assay) + '\n', encoding='utf-8')
     log('Preparing receptor')
     clean=clean_receptor_pdb(receptor,project.path/'receptor/receptor_clean.pdb',ref.resname,ref.chain,ref.resseq)
     receptor_log=project.path/'logs/prepare_receptor.log'
-    try:
-        rec=prepare_receptor(clean,project.path/'receptor/receptor.pdbqt',receptor_log)
-    except RuntimeError:
-        log('WARNING receptor preparation found unmatched residues; retrying with explicit Meeko --allow_bad_res. See receptor preparation audit.')
-        rec=prepare_receptor(clean,project.path/'receptor/receptor.pdbqt',receptor_log,allow_bad_res=True)
-        (project.path/'validation/receptor_preparation_fallback.json').write_text(json.dumps({'fallback':'Meeko --allow_bad_res','reason':'Initial template matching failed for incomplete/non-template residues; removed residues are listed in prepare_receptor.log.','scientific_review_required':True},indent=2),encoding='utf-8')
+    rec=prepare_receptor(clean,project.path/'receptor/receptor.pdbqt',receptor_log)
     project.receptor_pdbqt=str(rec)
     update_state(project.path, 'RECEPTOR', 'PASS', outputs={'receptor_pdbqt': _sha256(rec)})
     native_validation_dir = project.path/'analysis/validation'

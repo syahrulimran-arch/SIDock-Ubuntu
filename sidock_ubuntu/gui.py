@@ -363,10 +363,10 @@ def create_app(workspace=None):
         from .manual_docking import launch, root as manual_root, job_status, settings as manual_settings, save_settings
         from fastapi.responses import RedirectResponse
         project=get_project(project_id)
-        if action not in ('receptor','receptor_metal_free','receptor_ni_intermediate','receptor_openbabel','prepare','reuse_compounds','grid','dock'):
+        if action not in ('receptor','receptor_metal_free','receptor_ni_intermediate','receptor_openbabel','receptor_openbabel_pipeline','exploratory_smoke','prepare','reuse_compounds','grid','dock'):
             raise HTTPException(status_code=400,detail='Unknown step action')
         try:
-            if action in ('receptor', 'receptor_metal_free', 'receptor_ni_intermediate', 'receptor_openbabel'):
+            if action in ('receptor', 'receptor_metal_free', 'receptor_ni_intermediate', 'receptor_openbabel', 'receptor_openbabel_pipeline', 'exploratory_smoke'):
                 if not _json(manual_root(project)/'inputs/protein_choice.json'):
                     raise RuntimeError('First save Step 2 protein and crystal ligand choices.')
                 if action == 'receptor_metal_free':

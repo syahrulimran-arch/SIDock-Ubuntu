@@ -1,4 +1,4 @@
-"""Readable diagnostics for Meeko receptor failures.
+"""Read-only diagnostics for historical receptor failures.
 
 This module only reads saved logs and reviewed protein components. It NEVER
 alters receptor coordinates, deletes residues, or starts docking.
@@ -68,7 +68,7 @@ def analyze_meeko_log(text: str) -> dict:
         corrective_options.extend([
             "Inspect the listed residues in the reviewed PDB and compare atom names, occupancy, connectivity, alternate locations and terminal chemistry.",
             "Use experimentally supported coordinates or a separately documented, validated repair model; preserve the original PDB.",
-            "Rerun Meeko on the repaired temporary structure and verify that no protein residues or atoms disappeared.",
+            "Use the Open Babel preparation workflow in Step 2; retain this log as historical evidence.",
         ])
     if unknown_templates:
         corrective_options.append(

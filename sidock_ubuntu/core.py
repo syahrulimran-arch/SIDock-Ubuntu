@@ -10,7 +10,6 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from .model import DockingParameters, GridBox
-from .dependencies import resolve_meeko_receptor_preparer, resolve_meeko_script
 
 SUPPORTED_AD4_TYPES = {'C','A','N','NA','OA','OS','HD','HS','S','SA','Cl','Br','I','F','P','Mg','Ca','Zn','Fe'}
 _BUNDLED_RESIDUE_TEMPLATES = Path(__file__).with_name("data") / "kcx_residue_template.json"
@@ -79,55 +78,50 @@ def clean_receptor_pdb(source: Path, destination: Path, ref_resname: str, ref_ch
     return destination
 
 
+def _validate_prepared_atoms(destination: Path, expected_xyz: list[tuple], *, rigid: bool) -> None:
+    """Reject missing/moved heavy atoms, invalid charges and wrong PDBQT role."""
+    from collections import Counter
+    from .openbabel_receptor import _atoms
+    records = _atoms(destination, input_pdb=False)
+    if not records:
+        raise RuntimeError(f"Open Babel output contains no atoms: {destination}")
+    actual = [a["xyz"] for a in records if a["atom_type"] not in {"H", "HD", "HS"}]
+    # PDBQT coordinates have three decimal places. A multiset also checks that
+    # coincident atoms are not silently dropped or duplicated.
+    snap = lambda xyz: tuple(round(v, 3) for v in xyz)
+    if Counter(map(snap, expected_xyz)) != Counter(map(snap, actual)):
+        raise RuntimeError(f"Open Babel changed the heavy-atom count or coordinates: {destination}")
+    lines = destination.read_text(encoding="utf-8").splitlines()
+    torsions = any(line.startswith(("ROOT", "BRANCH", "TORSDOF")) for line in lines)
+    if rigid and torsions:
+        raise RuntimeError(f"Receptor output contains a ligand torsion tree: {destination}")
+    if not rigid and not any(line.startswith("TORSDOF") for line in lines):
+        raise RuntimeError(f"Ligand output has no TORSDOF record: {destination}")
+    if not any(abs(a["charge"]) > 1e-8 for a in records) and any(
+            a["atom_type"] not in {"C", "A", "H", "HD", "HS"} for a in records):
+        raise RuntimeError(f"Open Babel returned unassigned all-zero charges: {destination}")
+
+
 def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_bad_res: bool = False) -> Path:
-    resolved = resolve_meeko_receptor_preparer(); exe = resolved.get('path')
-    if not resolved['available']:
-        raise RuntimeError("Meeko receptor preparation command was not found (mk_prepare_receptor.py).")
-    base = destination.with_suffix("")
-    cmd = [exe, "--read_pdb", str(source.resolve()), "--default_altloc", "A", "-o", str(base.resolve()), "-p"]
-    # KCX is a polymer residue in the RCSB CCD, but Meeko 0.8.0 tries to fetch
-    # its template online when it is absent from the installed template set.
-    # Supply the reviewed offline CCD-derived template without changing the
-    # input structure or deleting the modified lysine.
-    if _BUNDLED_RESIDUE_TEMPLATES.is_file():
-        text = source.read_text(encoding="utf-8", errors="replace")
-        if any(line.startswith(("ATOM", "HETATM")) and line[17:20].strip().upper() == "KCX"
-               for line in text.splitlines()):
-            cmd.extend(["--add_templates", str(_BUNDLED_RESIDUE_TEMPLATES)])
-        # 4UBP contains an explicit LINK from ACE:A:0 to MET:A:1, but the
-        # crystallographic distance is outside Meeko's automatic bond cutoff.
-        # Mark this reviewed terminal cap as blunt; this preserves the atoms
-        # and coordinates while allowing the declared PDB LINK to remain a
-        # terminal connection rather than inventing a new bond.
-        ace_zero = any(
-            line.startswith(("ATOM", "HETATM"))
-            and line[17:20].strip().upper() == "ACE"
-            and line[22:27].strip() == "0"
-            for line in text.splitlines()
-        )
-        if ace_zero:
-            cmd.extend(["--blunt_ends", "A:0=0"])
+    """Prepare a rigid nonmetal receptor with Open Babel; never delete residues."""
     if allow_bad_res:
-        cmd.append("--allow_bad_res")
-    code = run_command(cmd, destination.parent, log_path)
-    candidates = [base.with_suffix(".pdbqt"), Path(str(base) + ".pdbqt")]
-    out = next((p for p in candidates if p.exists()), None)
-    if code != 0 or out is None:
-        from .receptor_diagnostics import analyze_meeko_log
-        log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
-        detail = analyze_meeko_log(log)
-        reasons = []
-        if detail["unknown_components"]:
-            reasons.append("unknown components: " + ", ".join(detail["unknown_components"]))
-        if detail["template_mismatches"]:
-            reasons.append("unmatched residues: " + ", ".join(detail["template_mismatches"]))
-        if not reasons:
-            reasons.append("Meeko exited without a valid PDBQT; inspect its output")
-        raise RuntimeError(
-            f"Receptor preparation failed (Meeko exit={code}; {'; '.join(reasons)}). "
-            f"Open Step 2 for the detailed explanation or see {log_path}"
-        )
-    return out
+        raise RuntimeError("Deleting unmatched residues is disabled; inspect the original structure.")
+    from .openbabel_receptor import _atoms, _METAL_ELEMENTS
+    records = _atoms(source, input_pdb=True)
+    if not records:
+        raise RuntimeError("Receptor source contains no atoms")
+    if any(a["element"] in _METAL_ELEMENTS for a in records):
+        raise RuntimeError("Metal-containing receptors require the reviewed Open Babel exploratory workflow or an independently parameterized receptor.")
+    executable = resolve_executable("obabel", "Open Babel")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    code = run_command([executable, str(source.resolve()), "-O", str(destination.resolve()),
+                        "-h", "-xr", "-xc", "-xn", "-xp", "--partialcharge", "gasteiger"],
+                       destination.parent, log_path)
+    if code != 0 or not destination.is_file() or destination.stat().st_size == 0:
+        raise RuntimeError(f"Open Babel receptor preparation failed (exit={code}); see {log_path}")
+    expected = [a["xyz"] for a in records if a["element"] not in {"H", "D"}]
+    _validate_prepared_atoms(destination, expected, rigid=True)
+    return destination
 
 
 def split_and_minimize_sdf(source: Path, out_dir: Path, *, reuse_existing: bool = False) -> list[Path]:
@@ -173,21 +167,23 @@ def split_and_minimize_sdf(source: Path, out_dir: Path, *, reuse_existing: bool 
 
 
 def prepare_ligand(source: Path, destination: Path, log_path: Path) -> Path:
-    exe = resolve_meeko_script('mk_prepare_ligand.py') or resolve_meeko_script('mk_prepare_ligand')
-    if not exe:
-        raise RuntimeError("Meeko ligand preparation command was not found (mk_prepare_ligand.py).")
-    # Step 3 is allowed to run before receptor preparation. Its PDBQT
-    # output folder must therefore be created explicitly on first use.
+    """Convert one 3D SDF ligand using Open Babel, preserving heavy-atom geometry."""
+    molecules = list(Chem.SDMolSupplier(str(source), sanitize=True, removeHs=False))
+    if len(molecules) != 1 or molecules[0] is None or not molecules[0].GetNumConformers():
+        raise RuntimeError(f"Ligand preparation requires exactly one valid 3D SDF molecule: {source}")
+    mol = molecules[0]
+    if not mol.GetConformer().Is3D():
+        raise RuntimeError(f"Ligand source is not 3D: {source}")
+    conf = mol.GetConformer()
+    expected = [tuple(conf.GetAtomPosition(a.GetIdx())) for a in mol.GetAtoms() if a.GetAtomicNum() != 1]
+    executable = resolve_executable("obabel", "Open Babel")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    code = run_command([exe, "-i", str(source.resolve()), "-o", str(destination.resolve())], destination.parent, log_path)
+    code = run_command([executable, str(source.resolve()), "-O", str(destination.resolve()),
+                        "-h", "-xn", "-xp", "--partialcharge", "gasteiger"],
+                       destination.parent, log_path)
     if code != 0 or not destination.is_file() or destination.stat().st_size == 0:
-        raise RuntimeError(
-            f"Ligand preparation failed for {source.name} (Meeko exit={code}); "
-            f"inspect the unmodified source and log: {log_path}"
-        )
-    if not any(line.startswith(("ATOM", "HETATM")) for line in
-               destination.read_text(encoding="utf-8", errors="replace").splitlines()):
-        raise RuntimeError(f"Invalid ligand PDBQT for {source.name}: no atoms; see {log_path}")
+        raise RuntimeError(f"Open Babel ligand preparation failed for {source.name} (exit={code}); see {log_path}")
+    _validate_prepared_atoms(destination, expected, rigid=False)
     return destination
 
 
