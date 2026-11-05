@@ -668,6 +668,15 @@ def step5(project: Path) -> str:
         "<p>The run is unlocked only after Steps 2–4 have been approved for their "
         "current files and settings. Existing completed compound logs are not rerun.</p>",
     ]
+    from .guided_workflow import approval_mode
+    from .exploratory_approval import MODE
+    if approval_mode(project) == MODE:
+        content.append(
+            "<p><b>EXPLORATORY_UNVALIDATED_NI_MODEL</b> — All AutoDock results "
+            "from this branch are technical/exploratory. Charges, protonation, "
+            "metal coordination and derived binding energies are not validated. "
+            "Review grid and genetic-algorithm settings before starting a full run.</p>"
+        )
     if not approved(project, 4):
         content.append("<p class='error'>Docking is locked until the previous steps are approved.</p>")
     content.append(action(
