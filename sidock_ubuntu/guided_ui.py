@@ -438,21 +438,38 @@ def step3(project: Path) -> str:
             for name in profile["names"]
         ) + "</table></details>"
     )
+    html_bits.append(
+        "<p><b>Preparation is independent of Step 2.</b> You may minimize and convert "
+        "ligands to PDBQT now, even while receptor preparation is unresolved. "
+        "Step 3 approval, grid generation and docking remain blocked until Step 2 "
+        "has a verified, approved receptor.</p>"
+    )
     existing_prepared = project / "ligands/prepared"
+    busy = job.get("status") == "RUNNING"
     if existing_prepared.is_dir() and any(existing_prepared.glob("*.pdbqt")):
         html_bits.append(action(
             project, "reuse_compounds",
             "Reuse existing project PDBQT files (no minimization)",
-            disabled=bool(profile["errors"]) or not approved(project, 2)
-            or job.get("status") == "RUNNING"
+            disabled=bool(profile["errors"]) or busy or profile["prepared"]
         ))
     html_bits.append(action(
-        project, "prepare", "Minimize and prepare compounds",
-        disabled=bool(profile["errors"]) or not approved(project, 2)
-        or job.get("status") == "RUNNING"
+        project, "prepare",
+        "Prepared ligands verified (no rerun needed)" if profile["prepared"]
+        else "Minimize and prepare compounds",
+        disabled=bool(profile["errors"]) or busy or profile["prepared"]
     ))
     html_bits.append(job_view(project))
-    html_bits.append(approve_form(project, 3))
+    if not profile["prepared"]:
+        html_bits.append(
+            "<p>Step 3 approval unavailable: complete and verify every ligand preparation first.</p>"
+        )
+    elif not approved(project, 2):
+        html_bits.append(
+            "<p>All ligands prepared and verified. <b>Step 3 approval is pending "
+            "the approved receptor from Step 2.</b> No ligand re-preparation is necessary.</p>"
+        )
+    else:
+        html_bits.append(approve_form(project, 3))
     return "".join(html_bits)
 
 
