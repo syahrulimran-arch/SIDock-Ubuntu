@@ -601,8 +601,15 @@ def prepare_exploratory_receptor(project: Path) -> dict:
             continue
         remove.add(h["index"])
         merge_targets[bonded["index"]].append(h["charge"])
-    if unresolved or len(remove) != 4726:
-        raise RuntimeError(f"Expected 4726 validated carbon-bound H; found {len(remove)}; unresolved={len(unresolved)}")
+    expected_nonpolar = source_audit.get("carbon_bound_hydrogen_count")
+    expected_polar = source_audit.get("polar_hydrogen_count")
+    if not isinstance(expected_nonpolar, int) or not isinstance(expected_polar, int):
+        raise RuntimeError("Hydrogen-type audit lacks the required expected counts")
+    if unresolved or len(remove) != expected_nonpolar:
+        raise RuntimeError(
+            f"Expected {expected_nonpolar} audited nonpolar H; "
+            f"found {len(remove)}; unresolved={len(unresolved)}"
+        )
     for target_index, charges in merge_targets.items():
         line = lines[target_index]
         current = float(line[70:76])
@@ -619,9 +626,12 @@ def prepare_exploratory_receptor(project: Path) -> dict:
     types = sorted({a["atom_type"] for a in final_atoms})
     parameter_types = _ad4_atom_types(parameter_file)
     missing_types = sorted(set(types) - parameter_types)
-    if not heavy_preserved or len(final_polar_h) != 1337 or missing_types:
+    if not heavy_preserved or len(final_polar_h) != expected_polar or missing_types:
         output.unlink()
-        raise RuntimeError(f"Exploratory receptor validation failed: heavy={heavy_preserved}, polar_H={len(final_polar_h)}, missing_types={missing_types}")
+        raise RuntimeError(
+            f"Exploratory receptor validation failed: heavy={heavy_preserved}, "
+            f"polar_H={len(final_polar_h)}/{expected_polar}, missing_types={missing_types}"
+        )
     ni = [a for a in final_atoms if a["atom_type"] == "Ni"]
     audit = {
         "status": "TECHNICAL_EXPLORATORY_CANDIDATE",
