@@ -256,7 +256,7 @@ def step2(project: Path) -> str:
             "does not validate protein charge, protonation or coordination chemistry.</small></p>"
         )
         content.append(
-            "<h3>Prepare receptor PDBQT</h3>"
+            "<h3>Optional: Meeko receptor preparation</h3>"
             "<p>Preparation runs as an independent step. Meeko will stop and show its actual error "
             "if it cannot parameterize nonstandard components; it will not silently delete them.</p>"
             + ("<p class='error'><b>Standard Meeko is disabled:</b> this reviewed PDB contains "
@@ -386,6 +386,11 @@ def step2(project: Path) -> str:
                 "under Step 4 and cannot be reported as native metal-site docking.</p>"
             )
     content.append(job_view(project))
+    if job.get("status") == "RUNNING":
+        content.append(
+            "<p>Step 2 receptor export is running. Refreshing automatically.</p>"
+            "<script>setTimeout(function(){location.reload();}, 3500);</script>"
+        )
     from .receptor_diagnostics import read_receptor_diagnostics
     diagnostic_action = job.get("action") in {
         "receptor", "receptor_metal_free", "receptor_ni_intermediate"
