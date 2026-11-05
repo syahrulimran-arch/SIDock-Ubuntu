@@ -449,12 +449,24 @@ def compound_profile(project: Path) -> dict:
     manifest = _json(manual_root(project) / "ligands/manifest.json")
     ligands = prepared_ligands(project)
     fingerprint = _sha_file(sdf)
-    prepared = manifest.get("source_sha256") == fingerprint and len(ligands) == len(labels) and (
-        set(manifest.get("compounds", [])) == {x.name for x in ligands}
+    expected = {x + ".pdbqt" for x in normalized}
+    actual = {x.name for x in ligands}
+    valid = {
+        x.name for x in ligands
+        if x.stat().st_size > 0 and any(
+            line.startswith(("ATOM", "HETATM"))
+            for line in x.read_text(encoding="utf-8", errors="replace").splitlines()
+        )
+    }
+    prepared = (
+        not errors and len(labels) == len(expected)
+        and manifest.get("source_sha256") == fingerprint
+        and set(manifest.get("compounds", [])) == expected
+        and actual == expected and valid == expected
     )
     return {"available": True, "source": str(sdf), "source_sha256": fingerprint,
             "total": len(labels), "names": labels, "errors": errors,
-            "prepared": bool(prepared), "prepared_count": len(ligands)}
+            "prepared": bool(prepared), "prepared_count": len(valid)}
 
 
 def import_existing_compounds(project: Path) -> dict:
