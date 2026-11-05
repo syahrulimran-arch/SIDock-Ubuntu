@@ -150,6 +150,11 @@ def readiness(project: Path) -> dict:
         if not needed or needed - declared:
             reasons.append("Candidate atom types are absent from the bound custom AD4 library.")
     hashes = {name: _sha(path) for name, path in files.items()}
+    if not reasons:
+        hashes["smoke_glg"] = _sha(Path(smoke_output_paths[0]))
+        hashes["smoke_dlg"] = _sha(Path(smoke_output_paths[1]))
+        for index, path in enumerate(smoke_output_paths[2:]):
+            hashes[f"smoke_map_{index}"] = _sha(Path(path))
     evidence = {
         "mode": MODE,
         "clean_sha256": source_hash,
