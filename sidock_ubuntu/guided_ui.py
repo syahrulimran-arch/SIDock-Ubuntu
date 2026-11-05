@@ -439,8 +439,44 @@ def step2(project: Path) -> str:
             f"<p><a href='/projects/{e(project.name)}/artifacts/manual_docking/logs/{e('receptor_meeko_Ni_intermediate.log' if job.get('action') == 'receptor_ni_intermediate' else 'receptor_meeko_metal_free.log' if job.get('action') == 'receptor_metal_free' else 'receptor_meeko.log')}'>"
             "Download complete Meeko log</a></p>"
         )
+    from .exploratory_approval import MODE, readiness as exploratory_readiness
+    from .guided_workflow import approval_mode
+    ex = exploratory_readiness(project)
+    if approval_mode(project) == MODE:
+        content.append(
+            "<p><b>Step 2 technically approved for exploratory docking.</b> "
+            "This is NOT scientifically validated. The Ni partial charges and "
+            "metal-coordination scoring remain provisional.</p>"
+            "<p><a href='/projects/" + e(project.name) + "/guided/3'>"
+            "Continue to Step 3 — prepared compounds</a></p>"
+        )
+    else:
+        content.append(
+            "<h3>Separate exploratory receptor approval (without Meeko)</h3>"
+            "<p>Use the existing Open Babel candidate and successful "
+            "AutoGrid4/AutoDock4 smoke-test evidence. This does not overwrite "
+            "the standard receptor or imply scientifically validated metal "
+            "binding energies.</p>"
+            + (f"<p><b>Technical evidence:</b> "
+               f"{e('Ready — successful smoke test and unchanged hashes' if ex['ready'] else 'Not ready')}</p>")
+        )
+        if not ex["ready"]:
+            content.append(
+                "<p><b>Outstanding exploratory prerequisites:</b> "
+                + e("; ".join(ex["reasons"])) + "</p>"
+            )
+        content.append(
+            f"<form action='/projects/{e(project.name)}/guided/approve-exploratory' method='post'>"
+            "<label><input type='checkbox' name='acknowledgement' "
+            "value='I_ACKNOWLEDGE_UNVALIDATED_EXPLORATORY_DOCKING' required> "
+            "I understand this is a <b>technical, exploratory AutoDock4 model</b>. "
+            "The protein charge/protonation and metal coordination are unvalidated; "
+            "its docking energies must not be reported as validated affinities.</label>"
+            f"<button type='submit' {'disabled' if not ex['ready'] or job.get('status') == 'RUNNING' else ''}>"
+            "Approve for exploratory docking and continue</button></form>"
+        )
     content.append(
-        "<p>Review the PDBQT and retained cofactors. Approval never runs docking.</p>"
+        "<p>Standard receptor approval remains independent and does not run docking.</p>"
         + approve_form(project, 2)
     )
     return "".join(content)
@@ -522,9 +558,18 @@ def step3(project: Path) -> str:
     elif not approved(project, 2):
         html_bits.append(
             "<p>All ligands prepared and verified. <b>Step 3 approval is pending "
-            "the approved receptor from Step 2.</b> No ligand re-preparation is necessary.</p>"
+            "a current Step 2 scientific or technical-exploratory approval.</b> "
+            "No ligand re-preparation is necessary.</p>"
         )
     else:
+        from .guided_workflow import approval_mode
+        from .exploratory_approval import MODE
+        if approval_mode(project) == MODE:
+            html_bits.append(
+                "<p><b>EXPLORATORY_UNVALIDATED_NI_MODEL:</b> approving these "
+                "prepared ligands permits technical grid/docking workflow only. "
+                "Metal-site binding predictions are not scientifically validated.</p>"
+            )
         html_bits.append(approve_form(project, 3))
     return "".join(html_bits)
 
@@ -573,6 +618,16 @@ def step4(project: Path) -> str:
         + "".join(fields) + exploratory
         + "<button>Save docking setup</button></form>"
     )
+    from .guided_workflow import approval_mode
+    from .exploratory_approval import MODE
+    if approval_mode(project) == MODE:
+        html_bits.append(
+            "<p><b>EXPLORATORY_UNVALIDATED_NI_MODEL.</b> AutoGrid and AutoDock "
+            "will use the hash-approved Open Babel exploratory receptor, NOT the "
+            "standard receptor. Review the complete binding-site coverage, "
+            "grid dimensions and search parameters; the small smoke grid is "
+            "not appropriate for a compound library. Results remain exploratory.</p>"
+        )
     from .manual_docking import parameter_file_path
     parameter = parameter_file_path(project)
     html_bits.append(
