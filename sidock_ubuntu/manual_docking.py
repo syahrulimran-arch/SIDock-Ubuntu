@@ -13,6 +13,7 @@ import math
 import fcntl
 from contextlib import contextmanager
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -204,28 +205,80 @@ def prepared_ligands(project: Path) -> list[Path]:
 
 
 def prepare(project: Path) -> dict:
+    """Independently prepare the complete SDF library; never run docking.
+
+    An interrupted run may leave successful individual ligands. Keep those
+    outputs and resume missing compounds without deleting or overwriting any.
+    Only write a final manifest when every expected ligand is verified.
+    """
+    from .guided_workflow import compound_profile
     project = Path(project).resolve()
     out = root(project)
+    profile = compound_profile(project)
+    if not profile.get("available") or profile.get("errors"):
+        raise RuntimeError(
+            "SDF must contain valid, uniquely identified compounds: "
+            + "; ".join(profile.get("errors", []))
+        )
     sdf = _ligand_sdf(project)
     fingerprint = _sha(sdf)
+    expected = [re.sub(r"[^A-Za-z0-9_.-]+", "_", n) + ".pdbqt"
+                for n in profile["names"]]
+    expected_names = set(expected)
     manifest_path = out / "ligands" / "manifest.json"
     manifest = _read_json(manifest_path)
     old = prepared_ligands(project)
-    if old and manifest.get("source_sha256") == fingerprint and set(manifest.get("compounds", [])) == {x.name for x in old}:
-        return {"status": "REUSED", "prepared": len(old), "ligands": [x.name for x in old]}
-    if old and manifest.get("source_sha256") != fingerprint:
-        raise RuntimeError("Ligand source changed; existing manual prepared ligands preserved. Use a separate project instead of overwriting them.")
+    present = {p.name for p in old}
+    if old and not present.issubset(expected_names):
+        raise RuntimeError(
+            "Unexpected existing prepared ligands were found. Preserved all files; "
+            "review the conflicting source SDF and manual_docking/ligands/prepared."
+        )
+    if old and manifest.get("source_sha256") not in (None, fingerprint):
+        raise RuntimeError(
+            "Ligand source changed; existing manual prepared ligands preserved. "
+            "Review the source and outputs before retrying."
+        )
+    def valid_pdbqt(path: Path) -> bool:
+        return (path.is_file() and path.stat().st_size > 0
+                and any(line.startswith(("ATOM", "HETATM")) for line in
+                        path.read_text(encoding="utf-8", errors="replace").splitlines()))
+    if (expected_names == present
+            and all(valid_pdbqt(p) for p in old)
+            and manifest.get("source_sha256") == fingerprint
+            and set(manifest.get("compounds", [])) == expected_names):
+        return {"status": "REUSED", "prepared": len(expected),
+                "ligands": sorted(expected_names)}
     sources = split_and_minimize_sdf(sdf, out / "ligands" / "source")
-    if not sources:
-        raise RuntimeError("No usable named compounds could be extracted from SDF")
+    actual_names = {p.stem + ".pdbqt" for p in sources}
+    if actual_names != expected_names or len(sources) != len(expected):
+        missing = expected_names - actual_names
+        raise RuntimeError(
+            f"Minimization incomplete: generated {len(sources)} of {len(expected)} SDFs. "
+            "Missing: " + ", ".join(sorted(missing))
+            + ". Existing files were preserved; review SDF/embedding failures."
+        )
     prepared = []
     for source in sources:
         dest = out / "ligands" / "prepared" / (source.stem + ".pdbqt")
-        if not dest.is_file() or dest.stat().st_size == 0:
+        if dest.is_file() and not valid_pdbqt(dest):
+            raise RuntimeError(
+                f"Existing ligand PDBQT is invalid: {dest}; preserved for inspection. "
+                "Fix or archive it explicitly before retrying."
+            )
+        if not dest.is_file():
             prepare_ligand(source, dest, out / "logs" / ("prepare_" + source.stem + ".log"))
+        if not valid_pdbqt(dest):
+            raise RuntimeError(f"Ligand output is empty or invalid: {dest}")
         prepared.append(dest.name)
-    _save_json(manifest_path, {"source_sha256": fingerprint, "compounds": prepared})
-    return {"prepared": len(prepared), "ligands": prepared}
+    if set(prepared) != expected_names:
+        raise RuntimeError("Preparation did not produce all expected PDBQTs")
+    _save_json(manifest_path, {
+        "source_sha256": fingerprint,
+        "compounds": sorted(prepared),
+        "preparation_method": "MEEKO_LIGAND_SDF_PREPARATION",
+    })
+    return {"status": "PREPARED", "prepared": len(prepared), "ligands": sorted(prepared)}
 
 
 def _run_identity(project: Path) -> tuple[str, list[Path]]:
