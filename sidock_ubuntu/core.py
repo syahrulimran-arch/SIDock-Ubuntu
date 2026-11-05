@@ -141,9 +141,18 @@ def prepare_ligand(source: Path, destination: Path, log_path: Path) -> Path:
     exe = resolve_meeko_script('mk_prepare_ligand.py') or resolve_meeko_script('mk_prepare_ligand')
     if not exe:
         raise RuntimeError("Meeko ligand preparation command was not found (mk_prepare_ligand.py).")
+    # Step 3 is allowed to run before receptor preparation. Its PDBQT
+    # output folder must therefore be created explicitly on first use.
+    destination.parent.mkdir(parents=True, exist_ok=True)
     code = run_command([exe, "-i", str(source.resolve()), "-o", str(destination.resolve())], destination.parent, log_path)
-    if code != 0 or not destination.exists():
-        raise RuntimeError(f"Ligand preparation failed for {source.name}; see {log_path}")
+    if code != 0 or not destination.is_file() or destination.stat().st_size == 0:
+        raise RuntimeError(
+            f"Ligand preparation failed for {source.name} (Meeko exit={code}); "
+            f"inspect the unmodified source and log: {log_path}"
+        )
+    if not any(line.startswith(("ATOM", "HETATM")) for line in
+               destination.read_text(encoding="utf-8", errors="replace").splitlines()):
+        raise RuntimeError(f"Invalid ligand PDBQT for {source.name}: no atoms; see {log_path}")
     return destination
 
 
