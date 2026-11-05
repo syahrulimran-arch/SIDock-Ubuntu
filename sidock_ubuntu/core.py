@@ -107,7 +107,7 @@ def prepare_receptor(source: Path, destination: Path, log_path: Path, *, allow_b
     return out
 
 
-def split_and_minimize_sdf(source: Path, out_dir: Path) -> list[Path]:
+def split_and_minimize_sdf(source: Path, out_dir: Path, *, reuse_existing: bool = False) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     supplier = Chem.SDMolSupplier(str(source), removeHs=False)
     outputs = []
@@ -118,6 +118,18 @@ def split_and_minimize_sdf(source: Path, out_dir: Path) -> list[Path]:
         if not name.strip():
             continue
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip()) or f"ligand_{idx}"
+        out = out_dir / f"{safe}.sdf"
+        if reuse_existing and out.is_file():
+            cached = [m for m in Chem.SDMolSupplier(str(out), sanitize=True, removeHs=False)]
+            if (len(cached) != 1 or cached[0] is None
+                    or not cached[0].GetNumConformers()
+                    or not cached[0].GetConformer().Is3D()):
+                raise RuntimeError(
+                    f"Existing minimized SDF is invalid: {out}. "
+                    "Original file preserved for inspection."
+                )
+            outputs.append(out)
+            continue
         mol = Chem.AddHs(mol)
         if mol.GetNumConformers() == 0 or not mol.GetConformer().Is3D():
             if mol.GetNumConformers():
