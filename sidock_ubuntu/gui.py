@@ -369,15 +369,15 @@ def create_app(workspace=None):
                     save_settings(project,values)
                 step=2
             elif action == 'prepare':
-                if not approved(project,2):
-                    raise RuntimeError('Approve Step 2 first')
+                # Ligand chemistry is independent of receptor preparation.
+                # Only Step 3 approval and subsequent docking need approved Step 2.
                 profile=compound_profile(project)
                 if profile.get('errors') or not profile.get('available'):
                     raise RuntimeError('Compound SDF must contain valid, uniquely named molecules: '+ '; '.join(profile.get('errors',[])))
                 step=3
             elif action == 'reuse_compounds':
-                if not approved(project,2):
-                    raise RuntimeError('Approve Step 2 first')
+                # Reuse is also independent of protein approval; verify the SDF
+                # and filenames before copying in guided_workflow.
                 if job_status(project).get('status') == 'RUNNING':
                     raise RuntimeError('Wait until the active manual task is finished')
                 import_existing_compounds(project)
