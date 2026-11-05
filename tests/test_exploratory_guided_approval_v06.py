@@ -110,6 +110,16 @@ def project_with_exploratory_evidence(tmp_path):
         "technical_exploratory_mode": True,
     })
     smoke = home / "exploratory_smoke/exploratory_smoke_audit.json"
+    gridlog = home / "exploratory_smoke/grid/production/autogrid.glg"
+    dlg = home / "exploratory_smoke/docking/dlg/ligand.dlg"
+    gridmap = home / "exploratory_smoke/grid/production/receptor.C.map"
+    for path, content in (
+        (gridlog, "autogrid4: Successful Completion\n"),
+        (dlg, "autodock4: Successful Completion\n"),
+        (gridmap, "synthetic map\n"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
     write_json(smoke, {
         "status": "PASSED",
         "scientific_approval": False,
@@ -123,8 +133,8 @@ def project_with_exploratory_evidence(tmp_path):
             "receptor_sha256": sha(exploratory),
             "parameter_sha256": sha(params),
         },
-        "grid": {"maps_exist": True},
-        "docking": {"successful_completion": True},
+        "grid": {"maps_exist": True, "glg": str(gridlog), "maps": [str(gridmap)]},
+        "docking": {"successful_completion": True, "dlg": str(dlg)},
         "atom_type_errors": [],
     })
     # Add already-prepared library without asking Step 3 to re-minimize.
