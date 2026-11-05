@@ -37,6 +37,17 @@ Run pytest on:
 
 For any failure: inspect the complete traceback, reproduce, fix narrowly, add regression tests and rerun. These are unit/integration-code tests, not proof of actual Meeko/AutoDock scientific correctness.
 
+## PRIORITY: Real Step 2 PDBQT conversion without Meeko (Open Babel)
+
+The user explicitly requires a receptor PDBQT and does not want Meeko to block obtaining the file. SIDock now has a `receptor_openbabel` Step 2 action, implemented in `sidock_ubuntu/openbabel_receptor.py`. It generates `manual_docking/inputs/receptor_openbabel_candidate.pdbqt`, not an automatically approved final docking receptor.
+
+1. Inspect the current requested project's actual `manual_docking/inputs/protein_clean.pdb` and `protein_choice.json` hashes (do not assume it is the Step 3 project). Confirm `obabel` is available with `command -v obabel`, and obtain permission before installing missing dependencies.
+2. Test the new worker route directly on the user's current project: `python -m sidock_ubuntu.manual_docking <ABSOLUTE_PROJECT_PATH> receptor_openbabel` after reviewing whether its job manager already has an active process. Do not invoke Meeko, AutoGrid or docking.
+3. Confirm Open Babel's rigid PDBQT options `-xr -xc -xn -xp -xh`. Check actual program exit status and log `manual_docking/logs/receptor_openbabel.log`, and confirm that a nonempty `.pdbqt` file exists.
+4. Verify the audit's original-heavy-atom preservation, source/target SHA256, Ni/other metal retention and coordinate identity. If no atoms were lost, report conversion success even if chemical validation is still pending. If the audit reports loss, inspect precisely which residue/atom/coordinates were changed by Open Babel and fix a general serialization problem where feasible. Never silently delete these atoms.
+5. Confirm the Step 2 GUI visibly shows the export button, link to the PDBQT, and link to the audit. Do **not** represent Gasteiger partial charges or raw rigid PDBQT conversion as a validated metalloprotein receptor; only docking approval requires subsequent chemistry review.
+6. Run `pytest -q tests/test_openbabel_receptor_v06.py` and all affected guided workflow tests. Record exact PASS/FAIL/BLOCKED evidence in `docs/CODEX_LIVE_TEST_REPORT.md`. Preserve all original project data and do not rerun compound minimization or docking.
+
 ## Phase C: Live Meeko
 
 Use a temporary copy of the reviewed receptor. Run actual installed Meeko through the Ni-free intermediate path. Verify that Ni is removed only from the temporary input and that original PDB and cleaned PDB remain untouched. Verify KCX carbamyl atoms CX/OQ1/OQ2 survive preparation if it succeeds. Capture actual exit code and stdout/stderr. Do NOT install a metal-free intermediate as a native production receptor.
